@@ -10,9 +10,13 @@ const conversationSchema = new mongoose.Schema({
     messages: [
         {
             type: mongoose.Schema.Types.ObjectId,
-            ref: "message",
+            ref: "Message",
         }
     ],
+    lastMessage: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Message",
+    },
     unreadCount: {
         type: Number,
         default: 0,

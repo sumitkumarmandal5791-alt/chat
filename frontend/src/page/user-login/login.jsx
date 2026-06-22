@@ -1,55 +1,3 @@
-### chat appliction
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
-import countries from '../utils/countries';
-import useLoginStore from '../store/user.LoginStore';
-import useUserStore from '../store/user.store';
-import useThemeStore from '../store/theme.store';
-import * as yup from "yup";
-import { yupResolver } from "@hookform/resolvers/yup";
-import  {motion}  from "framer-motion";
-
-
-const loginValidationSchema=yup
-.object().
-shape({
-    phoneNumber:yup.string().nullable.notRequired().matches(/^[0-9]{10}$/,"Phone number must be 10 digits").transform((value,originalValue)=>{
-        originalValue.trim()==""?null:value
-    }),
-    email:yup.string().email("Invalid email format").nullable.notRequired().transform((value,originalValue)=>{
-        originalValue.trim()==""?null:value
-    })
-})
-.test(
-        "at-least-one",
-        "Either email phone number is required",
-        function(value){
-            return !!(value.phoneNumber||value.emil)
-        }
-    )
-
-const otpValidationSchema=yup.object().shape({
-    otp:yup.string().required("OTP is required").matches(/^[0-9]{6}$/,"OTP must be 6 digits")
-})
-
-
-const profileValidationSchema=yup.object.shape({
-    name:yup.string().required("Name is required"),
-    agreed:yup.boolean().oneOf([true],"You must agree to the terms and conditions")
-});
-
-
-const avatars = [
-'https://api.dicebear.com/6.x/avataaars/svg?seed=Felix',
-'https://api.dicebear.com/6.x/avataaars/svg?seed=Aneka',
-'https://api.dicebear.com/6.x/avataaars/svg?seed=Mimi',
-'https://api.dicebear.com/6.x/avataaars/svg?seed=Jasper',
-'https://api.dicebear.com/6.x/avataaars/svg?seed=Luna',
-'https://api.dicebear.com/6.x/avataaars/svg?seed=Zoe',
-
-]
-
 
 // import React, { useState, useRef, useEffect } from 'react';
 // import { useNavigate } from 'react-router-dom';
@@ -490,7 +438,8 @@ const Login = () => {
     const {
         register: loginRegister,
         handleSubmit: handleLoginSubmit,
-        formState: { errors: LoginErrors }
+        formState: { errors: LoginErrors },
+        setValue: setLoginValue
     } = useForm({
         resolver: yupResolver(loginValidationSchema)
     });
@@ -608,11 +557,19 @@ const Login = () => {
             if (response && (response.message === "otp verified successfully" || response.token)) {
                 toast.info("Otp Verified successfully");
 
+                // Clear all OTP and login inputs/states
+                setOtp(["", "", "", "", "", ""]);
+                setOtpValue("otp", "");
+                setPhoneNumber("");
+                setEmail("");
+                setLoginValue("phoneNumber", "");
+                setLoginValue("email", "");
+
                 const user = response.user;
                 if (user && user.username && (user.profilePicture || user.profilePictureFile)) {
                     setUser(user);
                     toast.success('Welcome to Alyx Chat');
-                    navigate('/');
+                    navigate('/homePage');
                     resetLoginState();
                 } else {
                     setStep(3);
@@ -762,7 +719,7 @@ const Login = () => {
 
                             </div>
                             {LoginErrors.phoneNumber && (
-                                <p className={`text-red-500 text-sm rounded-md text-center p-2 my-2 ${theme === 'dark' ? "bg-red-700" : "bg-red-200"}`}>{LoginErrors.phoneNumber}</p>
+                                <p className={`text-red-500 text-sm rounded-md text-center p-2 my-2 ${theme === 'dark' ? "bg-red-700" : "bg-red-200"}`}>{LoginErrors.phoneNumber.message}</p>
                             )}
 
                         </div>
