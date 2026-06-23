@@ -4,6 +4,8 @@ import useLayoutStore from '../../store/layoutStore';
 import useThemeStore from '../../store/themeStore';
 import useuserStore from '../../store/useruserStore';
 import { FaPlus, FaSearch } from 'react-icons/fa';
+import formatTimestamp from "../../utils/formatTime";
+
 
 const ChatList = ({ contacts }) => {
   const selectedContact = useLayoutStore(state => state.selectedContact);
@@ -63,7 +65,36 @@ const ChatList = ({ contacts }) => {
                   }`}
               >
                 {/* Visual rendering of contact details */}
-                <span className="font-medium">{contact?.username}</span>
+                {/* <span className="font-medium">{contact?.username}</span> */}
+
+                <img
+                  src={contact?.profilePicture}
+                  alt={contact?.username}
+                  className="w-12 h-12 rounded-full   border-red-600 border-2  object-cover "
+                />
+                <div className='ml-3 flex-1 min-w-0'>
+                  <div className='flex justify-between items-baseline'>
+                    <h2 className={`font-semibold truncate ${selectedContact?._id === contact?._id ? "text-white" : ""}`}>
+                      {contact?.username}
+                    </h2>
+                    {contact?.conversation && (
+                      <span className={`text-xs flex-shrink-0 ${theme === 'dark' ? "text-gray-500" : "text-gray-400"}`}>
+                        {formatTimestamp(contact?.conversation?.lastMessage?.createdAt)}
+                      </span>
+                    )}
+                  </div>
+                  <div className={`flex items-center justify-between gap-2 ${selectedContact?._id === contact?._id ? "text-gray-300" : "text-gray-600"}`}>
+                    <p className={`text-xs truncate flex-1 ${theme === 'dark' ? "text-gray-500" : "text-gray-400"}`}>
+                      {contact?.conversation?.lastMessage?.message}
+                    </p>
+
+                    {contact.conversation && contact.conversation.unreadCount > 0 && contact?.conversation?.lastMessage?.receiverId === user._id && selectedContact?._id !== contact?._id && (
+                      <span className="flex items-center justify-center bg-teal-500 text-white rounded-full text-[10px] font-bold w-5 h-5 min-w-[20px] flex-shrink-0">
+                        {contact?.conversation?.unreadCount}
+                      </span>
+                    )}
+                  </div>
+                </div>
               </motion.div>
             </div>
           ))
