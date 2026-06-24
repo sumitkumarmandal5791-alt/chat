@@ -6,7 +6,6 @@ import useuserStore from '../../store/useruserStore';
 import { FaPlus, FaSearch } from 'react-icons/fa';
 import formatTimestamp from "../../utils/formatTime";
 
-
 const ChatList = ({ contacts }) => {
   const selectedContact = useLayoutStore(state => state.selectedContact);
   const setSelectedContact = useLayoutStore(state => state.setSelectedContact);

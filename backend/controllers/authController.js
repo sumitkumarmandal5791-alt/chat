@@ -180,7 +180,7 @@ const getAllUsers = async (req, res) => {
                     participants: { $all: [loggedInUserId, user._id] }
                 }).populate({
                     path: "lastMessage",
-                    select: "content createdAt sendser receiver"
+                    select: "message createdAt senderId receiverId"
                 }).lean();
                 return {
                     ...user,

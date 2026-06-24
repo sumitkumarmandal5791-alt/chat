@@ -1,2 +1,7 @@
 node_modules
 .env
+
+# Ignore Python files
+*.py
+*.pyc
+__pycache__/

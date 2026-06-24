@@ -10,8 +10,14 @@ import UserDetail from './componenets/userDetail';
 import Setting from './page/settingSection/setting';
 import Status from './page/StatusSection/status';
 import ChatWindow from './page/chatSection/chatWindow';
-
+import userUserStore from "./store/userUserStore";
+import { initialzeSocket } from "./services/chatService";
 function App() {
+
+    const { user } = userUserStore();
+    useEffect(() => {
+
+    }, [user])
     return (
         <>
             <ToastContainer position='top-right' autoClose={3000} />
