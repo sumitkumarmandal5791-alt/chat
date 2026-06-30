@@ -3,17 +3,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
      FaPaperPlane,
      FaPaperclip,
-     FaTrash,
      FaArrowLeft,
      FaTimes,
-     FaCheck,
-     FaCheckDouble,
-     FaFileVideo,
      FaLock,
      FaComment,
      FaSmile,
      FaImage,
-     FaFile
+     FaFile,
+     FaVideo,
 } from 'react-icons/fa';
 import { useChatStore } from '../../store/chatStore';
 import useuserStore from '../../store/useruserStore';
@@ -26,6 +23,32 @@ import Picker from 'emoji-picker-react';
 const isValidate = (date) => {
      return date instanceof Date && !isNaN(date);
 }
+
+/* ── Animated Typing Indicator ──────────────────────────── */
+const TypingIndicator = ({ isDark }) => (
+     <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 8 }}
+          className="flex items-center gap-2 px-4 py-2"
+     >
+          <div className={`flex items-center gap-1.5 px-4 py-2.5 rounded-2xl rounded-tl-none shadow-sm ${isDark ? 'bg-slate-800/90' : 'bg-white'}`}>
+               {[0, 1, 2].map((i) => (
+                    <motion.span
+                         key={i}
+                         className={`block w-2.5 h-2.5 rounded-full ${isDark ? 'bg-teal-400' : 'bg-teal-500'}`}
+                         animate={{ y: [0, -5, 0] }}
+                         transition={{
+                              duration: 0.6,
+                              repeat: Infinity,
+                              delay: i * 0.15,
+                              ease: "easeInOut",
+                         }}
+                    />
+               ))}
+          </div>
+     </motion.div>
+);
 
 const ChatWindow = ({ selectedContact, setSelectedContact, isMobile }) => {
      const [message, setMessage] = useState("");
@@ -41,9 +64,7 @@ const ChatWindow = ({ selectedContact, setSelectedContact, isMobile }) => {
      const messageEndref = useRef(null);
      const fileInputRef = useRef(null);
      const emojiPickerRef = useRef(null);
-
-
-
+     const fileMenuRef = useRef(null);
 
      const {
           messages,
@@ -61,9 +82,6 @@ const ChatWindow = ({ selectedContact, setSelectedContact, isMobile }) => {
           markMessageAsRead,
           cleanUp
      } = useChatStore();
-
-
-
 
      const isOnline = selectedContact ? isUserOnline(selectedContact._id) : false;
      const lastSeen = selectedContact ? getUserLastSeen(selectedContact._id) : null;
@@ -86,8 +104,7 @@ const ChatWindow = ({ selectedContact, setSelectedContact, isMobile }) => {
           }
      }, [selectedContact, conversations, currentConversation, fetchMessages]);
 
-
-     //Scroll to bottom on message changes
+     // Scroll to bottom on message changes and typing status changes
      useEffect(() => {
           messageEndref.current?.scrollIntoView({ behavior: 'smooth' });
      }, [messages, isTyping]);
@@ -109,7 +126,6 @@ const ChatWindow = ({ selectedContact, setSelectedContact, isMobile }) => {
 
                typingTimeoutRef.current = setTimeout(() => {
                     endTyping(selectedContact?._id);
-
                }, 2000)
 
                return () => {
@@ -121,23 +137,33 @@ const ChatWindow = ({ selectedContact, setSelectedContact, isMobile }) => {
           }
      }, [message, selectedContact, startTyping, endTyping])
 
+     // Close drop-downs on clicking outside
+     useEffect(() => {
+          const handleClickOutside = (e) => {
+               if (fileMenuRef.current && !fileMenuRef.current.contains(e.target)) {
+                    setShowFileMenu(false);
+               }
+               if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target)) {
+                    setShowEmoji(false);
+               }
+          };
+          document.addEventListener('mousedown', handleClickOutside);
+          return () => document.removeEventListener('mousedown', handleClickOutside);
+     }, []);
+
      const handleFileChange = (e) => {
-
           const file = e.target.files?.[0];
-
           if (file) {
                setAttachment(file);
                setShowFileMenu(false);
                if (file.type.startsWith("image")) {
                     setFilePreview(URL.createObjectURL(file));
                }
-
           }
      }
 
      const handleSendMessage = async () => {
           if (!selectedContact) return;
-
           setFilePreview(null);
 
           try {
@@ -147,10 +173,9 @@ const ChatWindow = ({ selectedContact, setSelectedContact, isMobile }) => {
                formData.append("message", message);
                formData.append("contentType", attachment ? "file" : "text");
 
-
                const status = isOnline ? "delivered" : "sent";
-
                formData.append("messageStatus", status);
+
                if (message.trim()) {
                     formData.append("content", message.trim());
                }
@@ -162,110 +187,129 @@ const ChatWindow = ({ selectedContact, setSelectedContact, isMobile }) => {
 
                await sendMessage(formData);
 
-               //clear states
                setMessage("");
                setAttachment(null);
                setShowFileMenu(false);
-
           }
           catch (error) {
-               console.log("error sending message", error);
-
+               console.error("error sending message", error);
           }
      }
 
      const renderDateSeparator = (date) => {
-          if (!isValidate(date)) {
-               return null;
-          }
+          if (!isValidate(date)) return null;
 
           let dateString;
           if (isToday(date)) {
                dateString = "Today"
-          }
-          else if (isYesterday(date)) {
+          } else if (isYesterday(date)) {
                dateString = "Yesterday";
-          }
-          else {
-               dateString = format(date, "EEEE,MMMM,d");
+          } else {
+               dateString = format(date, "EEEE, MMMM d");
           }
 
           return (
-               <div className="flex items-center justify-center my-4">
-                    <span
-                         className={`px-4 py-2 rounded-full text-sm ${theme === "dark" ? "bg-gray-700  text-gray-300" : "bg-gray-100 text-gray-600"}`}
+               <div className="flex items-center justify-center my-6 px-8 select-none">
+                    <div className={`flex-1 h-[1px] ${isDark ? 'bg-slate-800/60' : 'bg-slate-200/60'}`} />
+                    <span className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide mx-3 shadow-sm
+                         ${isDark
+                              ? 'bg-slate-900 text-slate-400 border border-slate-800/80'
+                              : 'bg-white text-slate-500 border border-slate-100'
+                         }`}
                     >
                          {dateString}
                     </span>
-
+                    <div className={`flex-1 h-[1px] ${isDark ? 'bg-slate-800/60' : 'bg-slate-200/60'}`} />
                </div>
           )
      }
 
      const groupedMessages = Array.isArray(messages) ? messages.reduce((acc, msg) => {
           const date = new Date(msg.createdAt);
-
           if (isValidate(date)) {
                const dateString = format(date, "yyyy-MM-dd");
-
                if (!acc[dateString]) {
                     acc[dateString] = [];
                }
-
                acc[dateString].push(msg);
-          }
-          else {
-               console.error("Invalid date for message :", msg);
+          } else {
+               console.error("Invalid date for message:", msg);
           }
           return acc;
      }, {}) : {};
 
      const handleReaction = (messageId, emoji) => {
-          console.log(messageId, emoji)
           addReaction(messageId, emoji);
      }
 
+     /* ── Empty State ────────────────────────────────── */
      if (!selectedContact) {
           return (
-               <div className={`flex items-center justify-center mx-auto h-screen text-center transition-all duration-500 ${theme === 'dark'
-                    ? 'bg-slate-990 text-slate-200'
-                    : 'bg-gradient-to-tr from-emerald-150 via-sky-300 to-rose-900 text-slate-800'
-                    }`}>
-                    <div className={`max-w-md px-6 py-12 rounded-3xl border border-dashed backdrop-blur-md shadow-2xl transition-colors duration-300 ${theme === 'dark'
-                         ? 'border-green-700/50 bg-slate-900/40'
-                         : 'border-green-200 bg-white/40'
-                         }`}>
-                         <FaComment className="text-6xl text-teal-400 mx-auto mb-6 animate-pulse" />
-                         <h2 className="text-2xl font-bold tracking-tight mb-3 bg-gradient-to-r from-teal-400 to-emerald-400 bg-clip-text text-transparent">
-                              Your Premium Space
+               <div className={`flex items-center justify-center h-full w-full transition-all duration-300 relative overflow-hidden
+                    ${isDark
+                         ? 'bg-slate-950'
+                         : 'bg-gradient-to-br from-slate-50 via-teal-50/20 to-emerald-50/20'
+                    }`}
+               >
+                    {/* Decorative backdrop shapes */}
+                    <div className={`absolute top-1/4 left-1/4 w-80 h-80 rounded-full blur-3xl opacity-10 pointer-events-none ${isDark ? 'bg-teal-500' : 'bg-teal-300'}`} />
+                    <div className={`absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full blur-3xl opacity-10 pointer-events-none ${isDark ? 'bg-emerald-500' : 'bg-emerald-300'}`} />
+
+                    <motion.div
+                         initial={{ opacity: 0, scale: 0.95 }}
+                         animate={{ opacity: 1, scale: 1 }}
+                         transition={{ duration: 0.4 }}
+                         className={`max-w-md px-8 py-14 rounded-3xl text-center relative z-10 mx-4
+                              ${isDark
+                                   ? 'bg-slate-900/60 border border-slate-800/80 shadow-2xl backdrop-blur-xl'
+                                   : 'bg-white/70 border border-white/80 shadow-xl backdrop-blur-xl'
+                              }`}
+                    >
+                         <div className={`w-20 h-20 mx-auto mb-6 rounded-2xl flex items-center justify-center
+                              ${isDark ? 'bg-teal-500/10 text-teal-400' : 'bg-teal-50 text-teal-500'}`}
+                         >
+                              <FaComment size={32} />
+                         </div>
+                         <h2 className={`text-2xl font-bold tracking-tight mb-2.5 ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
+                              Your Premium Chat Space
                          </h2>
-                         <p className={`text-bold mb-6 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-900'}`}>
-                              Select a contact from the panel to start a secure, real-time conversation.
+                         <p className={`text-sm mb-8 leading-relaxed max-w-xs mx-auto ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                              Select a contact to view your history and start real-time messaging.
                          </p>
-                         <div className={`flex items-center justify-center gap-2 px-4 py-2 rounded-full border text-xs mx-auto w-fit ${theme === 'dark' ? 'bg-slate-900/60 border-slate-800 text-slate-400' : 'bg-white border-sky-100/50 text-slate-500'
-                              }`}>
-                              <FaLock className="text-emerald-400" />
+                         <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold
+                              ${isDark
+                                   ? 'bg-slate-800/80 text-slate-400 border border-slate-700/50'
+                                   : 'bg-slate-50 text-slate-500 border border-slate-200'
+                              }`}
+                         >
+                              <FaLock className="text-emerald-500" size={10} />
                               <span>End-to-End Encrypted</span>
                          </div>
-                    </div>
+                    </motion.div>
                </div>
           )
      }
 
-
+     /* ── Active Chat Window ─────────────────────────── */
      return (
-          <div className={`w-full h-full flex flex-col relative transition-colors ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-white text-slate-800'
-               }`}>
+          <div className={`w-full h-full flex flex-col relative transition-all duration-300
+               ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-white text-slate-800'}`}
+          >
                {/* Header */}
-               <div className={`p-4 border-b flex items-center justify-between shadow-sm z-10 ${isDark ? 'bg-green-500/90 border-slate-800 backdrop-blur-md' : 'bg-sky-50/80 border-sky-100 backdrop-blur-md'
-                    }`}>
-                    <div className="flex items-center gap-3 min-w-0">
+               <div className={`px-5 py-3 md:px-6 border-b flex items-center justify-between z-10 backdrop-blur-md
+                    ${isDark
+                         ? 'bg-slate-900/90 border-slate-800/80'
+                         : 'bg-white/90 border-slate-100'
+                    }`}
+               >
+                    <div className="flex items-center gap-3.5 min-w-0">
                          {isMobile && (
                               <button
                                    onClick={() => setSelectedContact(null)}
-                                   className={`p-2 rounded-full hover:bg-slate-800/10 transition-colors ${isDark ? 'text-slate-300' : 'text-slate-600'}`}
+                                   className={`p-2 rounded-xl transition-all
+                                        ${isDark ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-200' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'}`}
                               >
-                                   <FaArrowLeft />
+                                   <FaArrowLeft size={16} />
                               </button>
                          )}
 
@@ -273,33 +317,84 @@ const ChatWindow = ({ selectedContact, setSelectedContact, isMobile }) => {
                               <img
                                    src={selectedContact.profilePicture}
                                    alt={selectedContact.username}
-                                   className="w-10 h-10 rounded-full object-cover ring-2 ring-teal-400/50"
+                                   className={`w-11 h-11 rounded-full object-cover ring-2 transition-all
+                                        ${isOnline
+                                             ? 'ring-emerald-400/80'
+                                             : isDark ? 'ring-slate-700' : 'ring-slate-200'
+                                        }`}
                               />
                               {isOnline && (
-                                   <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-400 border-2 border-slate-900 rounded-full shadow-sm animate-pulse" />
+                                   <span className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 shadow-sm bg-emerald-400
+                                        ${isDark ? 'border-slate-900' : 'border-white'}`}
+                                   />
                               )}
                          </div>
 
                          <div className="min-w-0">
-                              <h3 className="font-bold truncate text-sm md:text-base  text-red-500">{selectedContact.username}</h3>
-                              <div className="text-xs truncate flex items-center gap-1">
-                                   {isTyping ? (
-                                        <span className="text-emerald-400 font-semibold tracking-wide animate-pulse">typing...</span>
-                                   ) : isOnline ? (
-                                        <span className="text-emerald-400/80 font-medium">online</span>
-                                   ) : lastSeen ? (
-                                        <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>
-                                             last seen {formatTimestamp(lastSeen)}
-                                        </span>
-                                   ) : (
-                                        <span className={isDark ? 'text-slate-500' : 'text-slate-400'}>offline</span>
-                                   )}
+                              <h3 className={`font-bold truncate text-[15px] leading-tight
+                                   ${isDark ? 'text-slate-100' : 'text-slate-800'}`}
+                              >
+                                   {selectedContact.username}
+                              </h3>
+                              <div className="text-[11px] truncate mt-0.5 font-medium">
+                                   <AnimatePresence mode="wait">
+                                        {isTyping ? (
+                                             <motion.span
+                                                  key="typing"
+                                                  initial={{ opacity: 0 }}
+                                                  animate={{ opacity: 1 }}
+                                                  exit={{ opacity: 0 }}
+                                                  className="text-emerald-500"
+                                             >
+                                                  typing...
+                                             </motion.span>
+                                        ) : isOnline ? (
+                                             <motion.span
+                                                  key="online"
+                                                  initial={{ opacity: 0 }}
+                                                  animate={{ opacity: 1 }}
+                                                  exit={{ opacity: 0 }}
+                                                  className="text-emerald-500"
+                                             >
+                                                  online
+                                             </motion.span>
+                                        ) : lastSeen ? (
+                                             <motion.span
+                                                  key="lastseen"
+                                                  initial={{ opacity: 0 }}
+                                                  animate={{ opacity: 1 }}
+                                                  exit={{ opacity: 0 }}
+                                                  className={isDark ? 'text-slate-500' : 'text-slate-400'}
+                                             >
+                                                  last seen {formatTimestamp(lastSeen)}
+                                             </motion.span>
+                                        ) : (
+                                             <motion.span
+                                                  key="offline"
+                                                  initial={{ opacity: 0 }}
+                                                  animate={{ opacity: 1 }}
+                                                  exit={{ opacity: 0 }}
+                                                  className={isDark ? 'text-slate-500' : 'text-slate-400'}
+                                             >
+                                                  offline
+                                             </motion.span>
+                                        )}
+                                   </AnimatePresence>
                               </div>
                          </div>
                     </div>
                </div>
 
-               <div className={`flex-1 p-4 overflow-y-auto ${theme === 'dark' ? "bg-[#191a1a]" : "bg-[rgb(241,236,229)]"}`}>
+               {/* Messages Area */}
+               <div
+                    className={`flex-1 overflow-y-auto px-4 md:px-6 py-4 scroll-smooth
+                         ${isDark ? 'bg-[#0b0e11]' : 'bg-[#f4f2ee]'}`}
+                    style={{
+                         backgroundImage: isDark
+                              ? 'radial-gradient(circle at 10% 10%, rgba(20, 184, 166, 0.025) 0%, transparent 40%), radial-gradient(circle at 90% 90%, rgba(16, 185, 129, 0.02) 0%, transparent 40%)'
+                              : 'radial-gradient(circle at 10% 10%, rgba(20, 184, 166, 0.04) 0%, transparent 45%), radial-gradient(circle at 90% 90%, rgba(16, 185, 129, 0.035) 0%, transparent 45%)',
+                    }}
+               >
                     {Object.entries(groupedMessages).map(([date, msgs]) => (
                          <React.Fragment key={date}>
                               {renderDateSeparator(new Date(date))}
@@ -315,112 +410,208 @@ const ChatWindow = ({ selectedContact, setSelectedContact, isMobile }) => {
                               ))}
                          </React.Fragment>
                     ))}
+
+                    <AnimatePresence>
+                         {isTyping && <TypingIndicator isDark={isDark} />}
+                    </AnimatePresence>
+
                     <div ref={messageEndref} />
-                    {filePreview && (
-                         <div className='relative p-2'>
-                              <img
-                                   src={filePreview}
-                                   alt="file-preview"
-                                   className='w-80 object-cover rounded-xl shadow-lg'
-                              />
-                              <button
-                                   onClick={() => {
-                                        setAttachment(null);
-                                        setFilePreview(null);
-                                   }}
 
-                                   className='absolute top-2 right-2 bg-white/20 backdrop-blur-md text-white hover:bg-white rounded-full p-1'
+                    {/* File Preview */}
+                    <AnimatePresence>
+                         {filePreview && (
+                              <motion.div
+                                   initial={{ opacity: 0, y: 15, scale: 0.96 }}
+                                   animate={{ opacity: 1, y: 0, scale: 1 }}
+                                   exit={{ opacity: 0, y: 15, scale: 0.96 }}
+                                   className="relative p-2 mt-4 max-w-[280px]"
                               >
-                                   <FaTimes className='h-4 w-4' />
-                              </button>
-
-                         </div>
-
-                    )}
-
+                                   <div className={`rounded-2xl overflow-hidden shadow-lg border ${
+                                        isDark ? 'border-slate-800' : 'border-slate-200'
+                                   }`}>
+                                        <img
+                                             src={filePreview}
+                                             alt="file-preview"
+                                             className="w-full object-cover"
+                                        />
+                                   </div>
+                                   <button
+                                        onClick={() => {
+                                             setAttachment(null);
+                                             setFilePreview(null);
+                                        }}
+                                        className="absolute -top-1 -right-1 bg-black/60 hover:bg-black text-white rounded-full p-1.5 transition-colors shadow-md backdrop-blur-sm"
+                                   >
+                                        <FaTimes size={10} />
+                                   </button>
+                              </motion.div>
+                         )}
+                    </AnimatePresence>
                </div>
 
                {/* Input Footer */}
-               <div className={`p-4 border-t relative z-25 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-sky-200'}`}>
-                    {showEmoji && (
-                         <div ref={emojiPickerRef} className="absolute bottom-20 left-4 z-50">
-                              <Picker
-                                   onEmojiClick={(emojiData) => {
-                                        setMessage((prev) => (prev || '') + emojiData.emoji);
-                                        setShowEmoji(false);
-                                   }}
-                                   theme={isDark ? "dark" : "light"}
-                              />
-                         </div>
-                    )}
+               <div className={`px-4 py-3 border-t relative z-25
+                    ${isDark
+                         ? 'bg-slate-900/95 border-slate-800/80 backdrop-blur-md'
+                         : 'bg-white/95 border-slate-100 backdrop-blur-md'
+                    }`}
+               >
+                    {/* Emoji Picker */}
+                    <AnimatePresence>
+                         {showEmoji && (
+                              <motion.div
+                                   ref={emojiPickerRef}
+                                   initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                   animate={{ opacity: 1, y: 0, scale: 1 }}
+                                   exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                   className="absolute bottom-full left-4 mb-3 z-50 shadow-xl"
+                              >
+                                   <Picker
+                                        onEmojiClick={(emojiData) => {
+                                             setMessage((prev) => (prev || '') + emojiData.emoji);
+                                             setShowEmoji(false);
+                                        }}
+                                        theme={isDark ? "dark" : "light"}
+                                   />
+                              </motion.div>
+                         )}
+                    </AnimatePresence>
+
+                    {/* Attachment description bar */}
+                    <AnimatePresence>
+                         {attachment && !filePreview && (
+                              <motion.div
+                                   initial={{ opacity: 0, height: 0 }}
+                                   animate={{ opacity: 1, height: 'auto' }}
+                                   exit={{ opacity: 0, height: 0 }}
+                                   className={`mb-2.5 px-3.5 py-2.5 rounded-2xl flex items-center gap-2.5 text-xs font-semibold
+                                        ${isDark ? 'bg-slate-800/80 text-slate-300' : 'bg-slate-50 text-slate-600'}`}
+                              >
+                                   {attachment.type?.startsWith('video') ? (
+                                        <FaVideo className="text-teal-500" />
+                                   ) : (
+                                        <FaFile className="text-teal-500" />
+                                   )}
+                                   <span className="truncate flex-1">{attachment.name}</span>
+                                   <button
+                                        onClick={() => setAttachment(null)}
+                                        className="text-slate-400 hover:text-red-500 transition-colors"
+                                   >
+                                        <FaTimes size={12} />
+                                   </button>
+                              </motion.div>
+                         )}
+                    </AnimatePresence>
+
                     <div className="flex items-center gap-3">
-                         {/* Attachment Button & Menu */}
-                         <div className="relative">
+                         {/* Attachment Actions */}
+                         <div className="relative" ref={fileMenuRef}>
                               <button
                                    onClick={() => setShowFileMenu(!showFileMenu)}
-                                   className={`p-2 rounded-full transition-colors ${isDark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'}`}
+                                   className={`p-2.5 rounded-xl transition-all duration-200
+                                        ${showFileMenu
+                                             ? isDark ? 'bg-teal-500/15 text-teal-400' : 'bg-teal-50 text-teal-600'
+                                             : isDark ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-200' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+                                        }`}
                               >
-                                   <FaPaperclip className="h-5 w-5" />
+                                   <FaPaperclip size={16} />
                               </button>
 
-                              {showFileMenu && (
-                                   <div className={`absolute bottom-full left-0 mb-2 p-1 rounded-lg shadow-lg min-w-[140px] z-50 ${isDark ? "bg-slate-800 border border-slate-700" : "bg-white border border-slate-200"}`}>
-                                        <input
-                                             type="file"
-                                             ref={fileInputRef}
-                                             onChange={(e) => {
-                                                  handleFileChange(e);
-                                                  setShowFileMenu(false);
-                                             }}
-                                             className="hidden"
-                                             accept="image/*,video/*"
-                                        />
-                                        <button
-                                             onClick={() => fileInputRef.current?.click()}
-                                             className={`flex items-center px-4 py-2 w-full text-sm rounded transition-colors ${isDark ? "hover:bg-slate-700 text-slate-200" : "hover:bg-slate-100 text-slate-700"}`}
+                              <AnimatePresence>
+                                   {showFileMenu && (
+                                        <motion.div
+                                             initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                                             animate={{ opacity: 1, y: 0, scale: 1 }}
+                                             exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                                             transition={{ duration: 0.12 }}
+                                             className={`absolute bottom-full left-0 mb-2 py-1.5 rounded-2xl shadow-xl min-w-[170px] z-50 border
+                                                  ${isDark
+                                                       ? 'bg-slate-800 border-slate-700/80 shadow-black/40'
+                                                       : 'bg-white border-slate-200 shadow-slate-200/50'
+                                                  }`}
                                         >
-                                             <FaImage className="mr-2" /> Image/video
-                                        </button>
-                                        <button
-                                             onClick={() => fileInputRef.current?.click()}
-                                             className={`flex items-center px-4 py-2 w-full text-sm rounded transition-colors ${isDark ? "hover:bg-slate-700 text-slate-200" : "hover:bg-slate-100 text-slate-700"}`}
-                                        >
-                                             <FaFile className="mr-2" /> Document
-                                        </button>
-                                   </div>
-                              )}
+                                             <input
+                                                  type="file"
+                                                  ref={fileInputRef}
+                                                  onChange={(e) => {
+                                                       handleFileChange(e);
+                                                       setShowFileMenu(false);
+                                                  }}
+                                                  className="hidden"
+                                                  accept="image/*,video/*"
+                                             />
+                                             <button
+                                                  onClick={() => { fileInputRef.current?.click(); }}
+                                                  className={`flex items-center gap-3 px-4 py-2.5 w-full text-sm font-medium rounded-xl transition-colors
+                                                       ${isDark ? 'hover:bg-slate-700/70 text-slate-200' : 'hover:bg-slate-50 text-slate-700'}`}
+                                             >
+                                                  <FaImage className="text-violet-400" /> Image
+                                             </button>
+                                             <button
+                                                  onClick={() => { fileInputRef.current?.click(); }}
+                                                  className={`flex items-center gap-3 px-4 py-2.5 w-full text-sm font-medium rounded-xl transition-colors
+                                                       ${isDark ? 'hover:bg-slate-700/70 text-slate-200' : 'hover:bg-slate-50 text-slate-700'}`}
+                                             >
+                                                  <FaVideo className="text-rose-400" /> Video
+                                             </button>
+                                             <button
+                                                  onClick={() => { fileInputRef.current?.click(); }}
+                                                  className={`flex items-center gap-3 px-4 py-2.5 w-full text-sm font-medium rounded-xl transition-colors
+                                                       ${isDark ? 'hover:bg-slate-700/70 text-slate-200' : 'hover:bg-slate-50 text-slate-700'}`}
+                                             >
+                                                  <FaFile className="text-amber-400" /> Document
+                                             </button>
+                                        </motion.div>
+                                   )}
+                              </AnimatePresence>
                          </div>
 
-                         {/* Emoji Button */}
+                         {/* Emoji action */}
                          <button
                               onClick={() => setShowEmoji(!showEmoji)}
-                              className={`p-2 rounded-full transition-colors ${isDark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'}`}
+                              className={`p-2.5 rounded-xl transition-all duration-200
+                                   ${showEmoji
+                                        ? isDark ? 'bg-teal-500/15 text-teal-400' : 'bg-teal-50 text-teal-600'
+                                        : isDark ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-200' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+                                   }`}
                          >
-                              <FaSmile className="h-5 w-5" />
+                              <FaSmile size={16} />
                          </button>
 
-                         {/* Text Input */}
+                         {/* Input Box */}
                          <input
                               type="text"
                               value={message}
                               onChange={(e) => setMessage(e.target.value)}
                               onKeyDown={(e) => {
-                                   if (e.key === 'Enter') {
+                                   if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
                                         handleSendMessage();
                                    }
                               }}
                               placeholder="Type a message..."
-                              className={`flex-1 px-4 py-2.5 rounded-full border focus:outline-none transition-all ${isDark ? 'bg-slate-950 border-slate-800 focus:border-teal-500 text-slate-100' : 'bg-slate-50 border-slate-200 focus:border-teal-500 text-slate-800'}`}
+                              className={`flex-1 px-5 py-3 rounded-2xl border text-sm focus:outline-none transition-all duration-250
+                                   ${isDark
+                                        ? 'bg-slate-800/70 border-slate-700/60 focus:border-teal-500/50 focus:bg-slate-800 text-slate-100 placeholder:text-slate-500'
+                                        : 'bg-slate-50 border-slate-200/80 focus:border-teal-400/50 focus:bg-white text-slate-800 placeholder:text-slate-400'
+                                   }`}
                          />
 
-                         {/* Send Button */}
-                         <button
+                         {/* Send Action */}
+                         <motion.button
+                              whileTap={{ scale: 0.95 }}
                               onClick={handleSendMessage}
                               disabled={!message.trim() && !attachment}
-                              className={`p-3 rounded-full transition-all ${(!message.trim() && !attachment) ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-teal-500 text-white hover:bg-teal-600 shadow-md'}`}
+                              className={`p-3 rounded-2xl transition-all duration-250
+                                   ${(!message.trim() && !attachment)
+                                        ? isDark
+                                             ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
+                                             : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                        : 'bg-gradient-to-r from-teal-500 to-emerald-500 text-white shadow-md shadow-teal-500/20 hover:brightness-105'
+                                   }`}
                          >
-                              <FaPaperPlane className="h-4 w-4" />
-                         </button>
+                              <FaPaperPlane size={14} />
+                         </motion.button>
                     </div>
                </div>
           </div>

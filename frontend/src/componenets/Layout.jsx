@@ -42,7 +42,7 @@ const Layout = ({ children, isThemeDialogOpen, toggleThemeDialog, isStatusPrevie
 
 
     return (
-        <div className={`min-h-screen ${theme === 'dark' ? "bg-[#111b21] text-white" : "bg-gray-100 text-black"} flex relative`}>
+        <div className={`h-screen w-full overflow-hidden ${theme === 'dark' ? "bg-[#111b21] text-white" : "bg-gray-100 text-black"} flex relative`}>
             {/* Sidebar for Desktop */}
             {!isMobile && <Sidebar />}
 
@@ -51,7 +51,7 @@ const Layout = ({ children, isThemeDialogOpen, toggleThemeDialog, isStatusPrevie
                 {location.pathname === '/homePage' || location.pathname === '/homePage/' || location.pathname === '/chat' ? (
                     <AnimatePresence initial={false}>
                         {(!isMobile || !selectedContact) && (
-                            <div className={`${isMobile ? "flex-1 flex flex-col" : "w-80 md:w-96 flex-shrink-0"} h-full overflow-hidden`}>
+                            <div className={`${isMobile ? "flex-1 flex flex-col" : "w-96 lg:w-[400px] xl:w-[420px] flex-shrink-0"} h-full overflow-hidden`}>
                                 <motion.div
                                     key="chatlist"
                                     initial={{ opacity: 0, x: isMobile ? "-100%" : 0 }}
