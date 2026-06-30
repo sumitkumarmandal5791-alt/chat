@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './page/user-login/login';
 import { ToastContainer } from 'react-toastify';
@@ -10,14 +10,32 @@ import UserDetail from './componenets/userDetail';
 import Setting from './page/settingSection/setting';
 import Status from './page/StatusSection/status';
 import ChatWindow from './page/chatSection/chatWindow';
-import userUserStore from "./store/userUserStore";
-import { initialzeSocket } from "./services/chatService";
+import userUserStore from "./store/useruserStore";
+import { initialzeSocket, disconnectSocket } from "./services/chatService";
+import { useChatStore } from './store/chatStore';
 function App() {
 
     const { user } = userUserStore();
+
+    const { setCurrentUser, fetchConversations, cleanUp, initsocketListners } = useChatStore();
     useEffect(() => {
 
-    }, [user])
+        if (user?._id || user?.id) {
+            const socket = initialzeSocket();
+
+            if (socket) {
+                setCurrentUser(user);
+                fetchConversations();
+                initsocketListners()
+            }
+        }
+
+        return () => {
+            disconnectSocket();
+            cleanUp()
+        }
+
+    }, [user, setCurrentUser, fetchConversations, cleanUp])
     return (
         <>
             <ToastContainer position='top-right' autoClose={3000} />

@@ -3,8 +3,9 @@ import { motion } from 'framer-motion'; // Added missing import
 import useLayoutStore from '../../store/layoutStore';
 import useThemeStore from '../../store/themeStore';
 import useuserStore from '../../store/useruserStore';
-import { FaPlus, FaSearch } from 'react-icons/fa';
+import { FaPlus, FaSearch, FaSmile } from 'react-icons/fa';
 import formatTimestamp from "../../utils/formatTime";
+import { useChatStore } from '../../store/chatStore';
 
 const ChatList = ({ contacts }) => {
   const selectedContact = useLayoutStore(state => state.selectedContact);
@@ -12,14 +13,22 @@ const ChatList = ({ contacts }) => {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const { theme, setTheme } = useThemeStore();
   const { user } = useuserStore();
+  const conversations = useChatStore(state => state.conversations?.data || []);
 
   const [searchTerm, setSearchTerm] = useState('');
 
-  const filterContact = contacts?.filter(contact =>
+  const filterContact = contacts?.map(contact => {
+    const storeConversation = conversations.find(c =>
+      c.participants?.some(p => (p._id || p) === (contact._id || contact.id))
+    );
+    return {
+      ...contact,
+      conversation: storeConversation || contact.conversation
+    };
+  }).filter(contact =>
     contact?.username?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  console.log(filterContact)
   return (
     <div className={`w-full h-full border-r flex flex-col ${theme === 'dark' ? "bg-slate-900 text-slate-100 border-slate-800" : "bg-sky-50 text-slate-800 border-sky-100"}`}>
 
@@ -54,8 +63,8 @@ const ChatList = ({ contacts }) => {
       {/* Contacts List Wrapper */}
       <div className='overflow-y-auto h-[calc(100vh-120px)]'>
         {
-          filterContact?.map((contact) => (
-            <div key={contact?.id || contact?._id}>
+          filterContact?.map((contact, index) => (
+            <div key={contact?._id || contact?.id || index}>
               <motion.div
                 onClick={() => setSelectedContact(contact)}
                 className={`p-3 flex items-center cursor-pointer transition-colors ${theme === "dark"
@@ -87,7 +96,7 @@ const ChatList = ({ contacts }) => {
                       {contact?.conversation?.lastMessage?.message}
                     </p>
 
-                    {contact.conversation && contact.conversation.unreadCount > 0 && contact?.conversation?.lastMessage?.receiverId === user._id && selectedContact?._id !== contact?._id && (
+                    {contact.conversation && contact.conversation.unreadCount > 0 && (contact?.conversation?.lastMessage?.receiverId?._id || contact?.conversation?.lastMessage?.receiverId) === (user?._id || user?.id) && selectedContact?._id !== contact?._id && (
                       <span className="flex items-center justify-center bg-teal-500 text-white rounded-full text-[10px] font-bold w-5 h-5 min-w-[20px] flex-shrink-0">
                         {contact?.conversation?.unreadCount}
                       </span>

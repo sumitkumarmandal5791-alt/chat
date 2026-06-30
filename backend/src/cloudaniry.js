@@ -1,7 +1,5 @@
-const multer = require("multer")
-const cloudinary = require("cloudinary").v2
-const fs = require("fs");
-
+const multer = require("multer");
+const cloudinary = require("cloudinary").v2;
 
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_NAME,
@@ -11,45 +9,31 @@ cloudinary.config({
 
 const uploadFileTocloudinary = (file) => {
     return new Promise((resolve, reject) => {
-        // If Cloudinary credentials are not provided, fallback to serving locally
-        if (!process.env.CLOUDINARY_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API) {
-            console.log("Cloudinary credentials missing. Using local storage fallback.");
-            const ext = file.originalname ? file.originalname.split('.').pop() : 'png';
-            const newFilename = `${file.filename}.${ext}`;
-            const newPath = `uploads/${newFilename}`;
-            try {
-                fs.renameSync(file.path, newPath);
-                const localUrl = `http://localhost:${process.env.PORT || 1200}/uploads/${newFilename}`;
-                return resolve({ secure_url: localUrl });
-            } catch (err) {
-                console.error("Local storage fallback error:", err);
-                return reject(err);
-            }
+        if (!file || !file.buffer) {
+            return reject(new Error("No file buffer available for upload."));
         }
 
         const options = {
-            resource_type: file.mimetype.startsWith("video") ? "video" : "image"
-        }
-        const uplaoder = file.mimetype.startsWith("video") ? cloudinary.uploader.upload_large : cloudinary.uploader.upload;
-        uplaoder(file.path, options, (error, result) => {
-            try {
-                fs.unlinkSync(file.path);
-            } catch (e) {
-                console.error("Error unlinking file:", e);
-            }
+            resource_type: "auto"
+        };
 
+        const stream = cloudinary.uploader.upload_stream(options, (error, result) => {
             if (error) {
+                console.error("Cloudinary upload error:", error);
                 return reject(error);
             }
-            resolve(result)
-        })
-    })
-}
-const multerMiddleWare = multer({ dest: "uploads/" }).single("media")
+            resolve(result);
+        });
+
+        stream.end(file.buffer);
+    });
+};
+
+// Use memory storage instead of disk storage to avoid saving files locally
+const storage = multer.memoryStorage();
+const multerMiddleWare = multer({ storage }).single("media");
 
 module.exports = {
     uploadFileTocloudinary,
     multerMiddleWare
-}
-
-
+};

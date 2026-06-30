@@ -9,8 +9,7 @@ const transporter = nodemailer.createTransport({
 })
 
 transporter.verify()
-    .then(() => console.log("SMTP Connection Successful"))
-    .catch((error) => console.log("SMTP Connection Failed", error))
+    .catch((error) => console.error("SMTP Connection Failed", error))
 
 const sendOtpToEmail = async (email, otp) => {
 

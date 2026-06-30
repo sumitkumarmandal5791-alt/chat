@@ -18,7 +18,7 @@ const sendOtpTOPhoneNumber = async (phoneNumber) => {
         return response;
     }
     catch (error) {
-        console.log(error + "error in sendOtpTOPhoneNumber");
+        console.error("Error in sendOtpTOPhoneNumber:", error);
         throw error;
     }
 }
@@ -33,7 +33,7 @@ const checkOtpTOPhoneNumber = async (phoneNumber, otp) => {
         return response;
     }
     catch (error) {
-        console.log(error + "error in checkOtpTOPhoneNumber");
+        console.error("Error in checkOtpTOPhoneNumber:", error);
         throw error;
     }
 }

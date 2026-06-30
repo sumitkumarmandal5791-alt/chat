@@ -55,13 +55,11 @@ exports.sendMessage = async (req, res) => {
              video,
              messageStatus: messageStatus || "sent"
         })
-         console.log("Message saved successfully:", newMessage);
-        
         await newMessage.save();
         if (newMessage.message) {
              conversation.lastMessage = newMessage._id;
         }
-         console.log("Message saved successfully:", newMessage);
+
 
         conversation.unreadCount = (conversation.unreadCount || 0) + 1;
         conversation.lastMessage = newMessage._id;
@@ -145,52 +143,44 @@ exports.getMessages = async (req, res) => {
 }
 
 exports.markAsRead=async(req,res)=>{
-      const {messageId} = req.body || {};
+      const {messageIds} = req.body || {};
       const userId=req.user._id || req.user.id;
       
-      if(!messageId){
-          return res.status(400).json({ message: "messageId is required in the request body" });
+      if(!messageIds || !Array.isArray(messageIds) || messageIds.length === 0){
+          return res.status(400).json({ message: "messageIds array is required in the request body" });
       }
     
       try{
-        const message = await Message.findOne({
-                _id: messageId,
+        // Bulk update all unread messages sent to this user
+        await Message.updateMany(
+            {
+                _id: { $in: messageIds },
                 receiverId: userId,
-        });
-
-        if(!message){
-            return res.status(404).json({ message: "message not found" })
-        }
-
-        await Message.updateOne({
-            _id: messageId,
-            receiverId: userId,
-            messageStatus: { $ne: "read" }
-        }, { $set: { messageStatus: "read" } }
+                messageStatus: { $ne: "read" }
+            },
+            { $set: { messageStatus: "read" } }
         );
 
-        //notify to original sender
-
-         if(req.io && req.socketUserMap){
-             for(const messasge of message){
-                const senderId = messasge.senderId.toString();
+        // Notify original senders via socket
+        if(req.io && req.socketUserMap){
+            const messages = await Message.find({ _id: { $in: messageIds } });
+            for(const msg of messages){
+                const senderId = msg.senderId.toString();
                 const senderSocketId = req.socketUserMap.get(senderId);
 
                 if(senderSocketId){
-                     const updatedMessage={
-                        _id: message._id,
-                        messageStatus: "read"
-                     }
-
-                     req.io.to(senderSocketId).emit("messageRead", updatedMessage);
-                     await message.save();
+                     req.io.to(senderSocketId).emit("message_status_updated", {
+                         messageId: msg._id,
+                         messageStatus: "read"
+                     });
                 }
+            }
         }
 
-    }
-         return res.status(200).json({ message: "Message marked as read successfully" })
+         return res.status(200).json({ message: "Messages marked as read successfully" })
       }
       catch(error){
+        console.error("Error in markAsRead:", error);
         return res.status(500).json({ message: "internal server error in mark as read" })
       }
       

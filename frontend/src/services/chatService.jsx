@@ -3,10 +3,11 @@ import userUserStore from "../store/useruserStore";
 
 let socket = null;
 
-export const initialzeSocket = (user) => {
+export const initialzeSocket = (inputUser) => {
     if (socket) return socket;
 
-    const user = userUserStore((state) => state.user);
+    const user = inputUser || userUserStore.getState().user;
+    if (!user) return null;
 
     socket = io(import.meta.env.VITE_API_URL, {
         withCredentials: true,
@@ -20,7 +21,7 @@ export const initialzeSocket = (user) => {
 
     socket.on("connect", () => {
         console.log("socket connected,", socket.id)
-        socket.emit("user:online", user._id);
+        socket.emit("user_connected", user._id);
     })
 
     socket.on("connect_error", (err) => {

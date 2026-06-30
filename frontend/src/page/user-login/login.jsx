@@ -480,6 +480,43 @@ const Login = () => {
     }
 
     const handleOtpChange = (index, value) => {
+        // Handle paste of full OTP (length >= 5)
+        if (value.length > 1) {
+            if (value.length >= 5) {
+                const pasteData = value.trim().slice(0, 6).split("");
+                if (pasteData.every(char => /^\d$/.test(char))) {
+                    const newOtp = [...otp];
+                    for (let i = 0; i < 6; i++) {
+                        if (pasteData[i] !== undefined) {
+                            newOtp[i] = pasteData[i];
+                        }
+                    }
+                    setOtp(newOtp);
+                    const otpStr = newOtp.join("");
+                    setOtpValue("otp", otpStr, { shouldValidate: true });
+                    const nextInput = document.getElementById(`otp-5`);
+                    if (nextInput) nextInput.focus();
+                    return;
+                }
+            }
+            
+            // Otherwise, type-over scenario: take the last character
+            const lastChar = value.slice(-1);
+            if (lastChar && !/^\d$/.test(lastChar)) return;
+            const newOtp = [...otp];
+            newOtp[index] = lastChar;
+            setOtp(newOtp);
+
+            const otpStr = newOtp.join("");
+            setOtpValue("otp", otpStr, { shouldValidate: true });
+
+            if (lastChar && index < 5) {
+                const nextInput = document.getElementById(`otp-${index + 1}`);
+                if (nextInput) nextInput.focus();
+            }
+            return;
+        }
+
         if (value && !/^\d$/.test(value)) return;
         const newOtp = [...otp];
         newOtp[index] = value;
@@ -791,7 +828,6 @@ const Login = () => {
                                     key={index}
                                     id={`otp-${index}`}
                                     type="text"
-                                    maxLength={1}
                                     value={digit}
                                     onChange={(e) => handleOtpChange(index, e.target.value)}
                                     onKeyDown={(e) => handleOtpKeyDown(index, e)}
