@@ -5,7 +5,7 @@ import axiosInstance from "./url.service";
 export const sendOtp = async (payload) => {
     try {
         const response = await axiosInstance.post("/auth/send-otp", payload);
-        console.log("OTP sent successfully:", response.data);
+       // console.log("OTP sent successfully:", response.data);
         return response.data;
     } catch (error) {
         throw error.response?.data?.message || "An error occurred while sending OTP.";

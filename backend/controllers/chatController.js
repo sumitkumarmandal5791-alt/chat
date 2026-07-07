@@ -121,7 +121,7 @@ exports.getMessages = async (req, res) => {
             return res.status(403).json({ message: "access denied" })
         }
 
-        const messages = await Message.find({ conversationId: conversationId })
+        const messages = await Message.find({ conversationId: conversationId, deletedFor: { $ne: userId } })
         .populate('senderId', 'username profilePicture')
         .populate('receiverId', 'username profilePicture')
         .sort({ createdAt: 1 });
@@ -186,33 +186,67 @@ exports.markAsRead=async(req,res)=>{
       
 }
 
-exports.deleteMessage=async(req,res)=>{
-    const {messageId} = req.params;
-    const userId=req.user.id;
+exports.deleteMessage = async (req, res) => {
+    const { messageId } = req.params;
+    const { type } = req.query; // 'me' or 'everyone'
+    const userId = req.user._id || req.user.id;
 
-    try{
+    try {
         const message = await Message.findById(messageId);
-        if(!message){
-            return res.status(404).json({ message: "message not found" })
-        }       
-        
-        if(message.senderId.toString() !== userId ){
-            return res.status(403).json({ message: "access denied" })
+        if (!message) {
+            return res.status(404).json({ message: "message not found" });
         }
 
-        await message.deleteOne();
-
-          if(req.io||req.socketUserMap){
-               const receiverSocketId=req.socketUserMap.get(message.receiver.toString())
-               
-               if(receiverSocketId){
-                    req.io.to(receiverSocketId).emit("messageDeleted", { messageId: message._id });
-               }
+        if (type === "everyone") {
+            // Only the sender can delete for everyone
+            if (message.senderId.toString() !== userId.toString()) {
+                return res.status(403).json({ message: "Access denied. Only the sender can delete for everyone." });
             }
-        return res.status(200).json({ message: "Message deleted successfully" })
+
+            const conversationId = message.conversationId;
+            await message.deleteOne();
+
+            // Emit to both users to update the UI in real-time
+            if (req.io && req.socketUserMap) {
+                const receiverId = message.receiverId.toString();
+                const senderId = message.senderId.toString();
+                
+                const receiverSocketId = req.socketUserMap.get(receiverId);
+                const senderSocketId = req.socketUserMap.get(senderId);
+
+                if (receiverSocketId) {
+                    req.io.to(receiverSocketId).emit("messageDeleted", { messageId, conversationId, type: "everyone" });
+                }
+                if (senderSocketId) {
+                    req.io.to(senderSocketId).emit("messageDeleted", { messageId, conversationId, type: "everyone" });
+                }
+            }
+        } else {
+            // Delete for me
+            if (!message.deletedFor.includes(userId)) {
+                message.deletedFor.push(userId);
+                await message.save();
+            }
+
+            // If both participants deleted the message for themselves, delete it from the DB entirely
+            if (message.deletedFor.includes(message.senderId) && message.deletedFor.includes(message.receiverId)) {
+                await message.deleteOne();
+            }
+
+            // Emit socket to the user who triggered it to update in real-time
+            if (req.io && req.socketUserMap) {
+                const senderSocketId = req.socketUserMap.get(userId.toString());
+                if (senderSocketId) {
+                    req.io.to(senderSocketId).emit("messageDeleted", { messageId, conversationId: message.conversationId, type: "me" });
+                }
+            }
+        }
+
+        return res.status(200).json({ message: "Message deleted successfully", messageId, type });
     }
-    catch(eror){
-        return res.status(500).json({ message: "internal server error in delete message" })
+    catch (error) {
+        console.error("Error in deleteMessage:", error);
+        return res.status(500).json({ message: "internal server error in delete message" });
     }
 }
 

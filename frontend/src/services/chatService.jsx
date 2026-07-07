@@ -4,6 +4,7 @@ import userUserStore from "../store/useruserStore";
 let socket = null;
 
 export const initialzeSocket = (inputUser) => {
+    
     if (socket) return socket;
 
     const user = inputUser || userUserStore.getState().user;

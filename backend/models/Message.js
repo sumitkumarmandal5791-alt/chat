@@ -16,7 +16,7 @@ const messageSchema = new mongoose.Schema(
 
         message: {
             type: String,
-            required: true,
+            required: false,
         },
 
         conversationId: {
@@ -54,6 +54,12 @@ const messageSchema = new mongoose.Schema(
             enum: ["sent", "delivered", "read"],
             default: "sent",
         },
+        deletedFor: [
+            {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: "user",
+            }
+        ],
     },
     { timestamps: true }
 );

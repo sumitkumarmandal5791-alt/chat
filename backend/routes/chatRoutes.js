@@ -11,5 +11,4 @@ router.put("/messages/read", authMiddleWare, chatController.markAsRead)
 router.delete("/messages/:messageId", authMiddleWare, chatController.deleteMessage)
 
 
-
 module.exports = router;

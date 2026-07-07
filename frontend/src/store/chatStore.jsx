@@ -22,6 +22,7 @@ export const useChatStore = create((set, get) => ({
 
     // remove existing listeners to prevent duplicates
     socket.off("receive_message");
+    socket.off("newMessage");
     socket.off("typing_start");
     socket.off("typing_stop");
     socket.off("user_status");
@@ -57,10 +58,34 @@ export const useChatStore = create((set, get) => ({
       }));
     });
 
-    socket.on("messageDeleted", ({ messageId }) => {
-      set((state) => ({
-        messages: state.messages.filter((msg) => msg._id !== messageId)
-      }));
+    socket.on("messageDeleted", ({ messageId, conversationId }) => {
+      set((state) => {
+        const updatedMessages = state.messages.filter((msg) => msg._id !== messageId);
+        
+        let updatedConversations = state.conversations?.data || [];
+        if (conversationId) {
+          updatedConversations = updatedConversations.map((conv) => {
+            if (conv._id === conversationId) {
+              const newLatestMessage = updatedMessages.length
+                ? updatedMessages[updatedMessages.length - 1]
+                : null;
+              return {
+                ...conv,
+                lastMessage: newLatestMessage
+              };
+            }
+            return conv;
+          });
+        }
+
+        return {
+          messages: updatedMessages,
+          conversations: {
+            ...state.conversations,
+            data: updatedConversations
+          }
+        };
+      });
     });
 
     socket.on("error", (error) => {
@@ -263,6 +288,15 @@ export const useChatStore = create((set, get) => ({
           msg._id === tempId ? responseMsg : msg
         )
       }));
+
+      const conversationsList = get().conversations?.data || [];
+      const hasConversation = conversationsList.some(
+        (c) => c._id === responseMsg.conversationId
+      );
+      if (!hasConversation) {
+        await get().fetchConversations();
+      }
+
       return responseMsg;
     } catch (error) {
       console.error("error sending message ", error);
@@ -290,38 +324,48 @@ export const useChatStore = create((set, get) => ({
     if (message.conversationId === currentConversation?._id) {
       // Skip adding to messages if the current user sent this message,
       // because sendMessage already handles it via API response replacement.
-      if (messageSenderId !== currentUser?._id) {
+      if (String(messageSenderId) !== String(currentUser?._id || currentUser?.id || '')) {
         set((state) => ({
           messages: [...state.messages, message]
         }));
       }
 
-      if (message.receiverId?._id === currentUser?._id) {
+      if (String(message.receiverId?._id || message.receiverId || '') === String(currentUser?._id || currentUser?.id || '')) {
         get().markMessageAsRead();
       }
     }
 
-    set((state) => {
-      const updatedConversations = state.conversations?.data?.map((conv) => {
-        if (conv._id === message.conversationId) {
-          return {
-            ...conv,
-            lastMessage: message,
-            unreadCount: (message?.receiverId?._id === currentUser?._id && message.conversationId !== currentConversation?._id)
-              ? (conv.unreadCount || 0) + 1
-              : conv.unreadCount
-          };
-        }
-        return conv;
-      });
+    const conversationsList = get().conversations?.data || [];
+    const hasConversation = conversationsList.some((c) => c._id === message.conversationId);
+    if (!hasConversation) {
+      get().fetchConversations();
+    } else {
+      const targetConv = conversationsList.find((c) => c._id === message.conversationId);
+      const isAlreadyLatest = targetConv?.lastMessage?._id === message._id || targetConv?.lastMessage === message._id;
+      if (isAlreadyLatest) return;
 
-      return {
-        conversations: {
-          ...state.conversations,
-          data: updatedConversations || []
-        }
-      };
-    });
+      set((state) => {
+        const updatedConversations = state.conversations?.data?.map((conv) => {
+          if (conv._id === message.conversationId) {
+            return {
+              ...conv,
+              lastMessage: message,
+              unreadCount: (String(message?.receiverId?._id || message?.receiverId || '') === String(currentUser?._id || currentUser?.id || '') && message.conversationId !== currentConversation?._id)
+                ? (conv.unreadCount || 0) + 1
+                : conv.unreadCount
+            };
+          }
+          return conv;
+        });
+
+        return {
+          conversations: {
+            ...state.conversations,
+            data: updatedConversations || []
+          }
+        };
+      });
+    }
   },
 
   // mark as read
@@ -331,7 +375,7 @@ export const useChatStore = create((set, get) => ({
     if (!messages.length || !currentUser) return;
 
     const unreadIds = messages
-      .filter((msg) => msg.messageStatus !== "read" && msg?.receiverId?._id === currentUser?._id)
+      .filter((msg) => msg.messageStatus !== "read" && String(msg?.receiverId?._id || msg?.receiverId || '') === String(currentUser?._id || currentUser?.id || ''))
       .map((msg) => msg._id)
       .filter(Boolean);
 
@@ -360,13 +404,13 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-  deleteMessage: async (messageId) => {
+  deleteMessage: async (messageId, type = "me") => {
     const { messages, currentUser, currentConversation } = get();
 
     try {
       set({ loading: true, error: null });
 
-      await axiosInstance.delete(`/chat/messages/${messageId}`);
+      await axiosInstance.delete(`/chat/messages/${messageId}?type=${type}`);
 
       // Remove message from local state
       set((state) => {
@@ -385,7 +429,7 @@ export const useChatStore = create((set, get) => ({
               return {
                 ...conv,
                 lastMessage: newLatestMessage,
-                unreadCount: newLatestMessage?.receiverId?._id === currentUser?._id
+                 unreadCount: String(newLatestMessage?.receiverId?._id || newLatestMessage?.receiverId || '') === String(currentUser?._id || currentUser?.id || '')
                   ? (conv.unreadCount || 0)
                   : (newLatestMessage ? (conv.unreadCount || 0) - 1 : 0)
               };
@@ -410,7 +454,8 @@ export const useChatStore = create((set, get) => ({
         socket.emit("message_deleted", {
           messageId,
           conversationId: currentConversation?._id,
-          receiverId: messages.find((m) => m._id === messageId)?.receiverId?._id
+          receiverId: messages.find((m) => m._id === messageId)?.receiverId?._id,
+          type
         });
       }
     } catch (error) {

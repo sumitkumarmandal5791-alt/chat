@@ -156,7 +156,7 @@ const ChatWindow = ({ selectedContact, setSelectedContact, isMobile }) => {
           if (file) {
                setAttachment(file);
                setShowFileMenu(false);
-               if (file.type.startsWith("image")) {
+               if (file.type.startsWith("image") || file.type.startsWith("video")) {
                     setFilePreview(URL.createObjectURL(file));
                }
           }
@@ -171,7 +171,18 @@ const ChatWindow = ({ selectedContact, setSelectedContact, isMobile }) => {
                formData.append("senderId", currentUser?._id);
                formData.append("receiverId", selectedContact?._id);
                formData.append("message", message);
-               formData.append("contentType", attachment ? "file" : "text");
+
+               let determinedContentType = "text";
+               if (attachment) {
+                    if (attachment.type.startsWith("image")) {
+                         determinedContentType = "image";
+                    } else if (attachment.type.startsWith("video")) {
+                         determinedContentType = "video";
+                    } else {
+                         determinedContentType = "file";
+                    }
+               }
+               formData.append("contentType", determinedContentType);
 
                const status = isOnline ? "delivered" : "sent";
                formData.append("messageStatus", status);
@@ -429,11 +440,22 @@ const ChatWindow = ({ selectedContact, setSelectedContact, isMobile }) => {
                                    <div className={`rounded-2xl overflow-hidden shadow-lg border ${
                                         isDark ? 'border-slate-800' : 'border-slate-200'
                                    }`}>
-                                        <img
-                                             src={filePreview}
-                                             alt="file-preview"
-                                             className="w-full object-cover"
-                                        />
+                                        {attachment?.type?.startsWith('video') ? (
+                                             <video
+                                                  src={filePreview}
+                                                  className="w-full object-cover max-h-48"
+                                                  controls={false}
+                                                  muted
+                                                  autoPlay
+                                                  loop
+                                             />
+                                        ) : (
+                                             <img
+                                                  src={filePreview}
+                                                  alt="file-preview"
+                                                  className="w-full object-cover"
+                                             />
+                                        )}
                                    </div>
                                    <button
                                         onClick={() => {

@@ -47,14 +47,28 @@ const MessageBubble = ({ message, theme, onReact, currentUser, deleteMessage }) 
             <div className={`${bubbleContentClass} relative group`} ref={messageRef}>
                 <div className="flex justify-center gap-2">
                     {message.contentType === 'text' && <p className="mr-2">{message.content || message.message}</p>}
-                    {message.contentType === 'imamge' && (
+                    {message.contentType === 'image' && (
                         <div>
                             <img
-                                src={message.imageOrVideoUrl}
-                                alt="image-video"
+                                src={message.image || message.imageOrVideoUrl}
+                                alt="image-attachment"
                                 className="rounded-lg max-w-xs"
                             />
-                            <p className="mt-1">{message.content || message.message}</p>
+                            {(message.content || message.message) && (
+                                <p className="mt-1">{message.content || message.message}</p>
+                            )}
+                        </div>
+                    )}
+                    {message.contentType === 'video' && (
+                        <div>
+                            <video
+                                src={message.video || message.imageOrVideoUrl}
+                                controls
+                                className="rounded-lg max-w-xs"
+                            />
+                            {(message.content || message.message) && (
+                                <p className="mt-1">{message.content || message.message}</p>
+                            )}
                         </div>
                     )}
                 </div>
@@ -74,13 +88,49 @@ const MessageBubble = ({ message, theme, onReact, currentUser, deleteMessage }) 
                     )}
                 </div>
 
-                <div className='absolute top-1 right-1 opacity-0 group-hover : opacity-100  transition opacity z-20'>
+                <div className='absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity z-20'>
                     <button onClick={() => setShowOptions((prev) => !prev)}
                         className={`p-1 rounded-full ${theme === 'dark' ? "text-white" : "text-gray-800"}`}
                     >
                         <HiDotsVertical size={18} />
                     </button>
                 </div>
+
+                {showOptions && (
+                    <div
+                        ref={optionRef}
+                        className={`absolute right-2 top-8 rounded-2xl shadow-xl border p-1 min-w-[140px] z-50 ${
+                            theme === 'dark' 
+                                ? "bg-slate-900 border-slate-800 text-slate-200" 
+                                : "bg-white border-slate-100 text-slate-700"
+                        }`}
+                    >
+                        <button
+                            onClick={() => {
+                                deleteMessage(message._id, "me");
+                                setShowOptions(false);
+                            }}
+                            className={`w-full text-left px-3.5 py-2 text-xs rounded-xl transition-colors ${
+                                theme === 'dark' ? "hover:bg-slate-800/80" : "hover:bg-slate-50"
+                            }`}
+                        >
+                            Delete for me
+                        </button>
+                        {isUserMessage && (
+                            <button
+                                onClick={() => {
+                                    deleteMessage(message._id, "everyone");
+                                    setShowOptions(false);
+                                }}
+                                className={`w-full text-left px-3.5 py-2 text-xs rounded-xl transition-colors text-red-500 font-medium ${
+                                    theme === 'dark' ? "hover:bg-red-500/10" : "hover:bg-red-55"
+                                }`}
+                            >
+                                Delete for everyone
+                            </button>
+                        )}
+                    </div>
+                )}
 
                 <div className={`absolute ${isUserMessage ? "-left-10" : "-right-10"}  topo-1/2 transform -translate -y-1/2 opacity-0 group-hover:opacity-100 transition opacity flex flex-col gap-2 `}>
                     <button
