@@ -69,9 +69,10 @@ You need to set up environment variables for both the backend and frontend to ru
 #### Backend (`backend/.env`)
 Create a `.env` file in the `backend` directory and add the following:
 ```env
-PORT=5000
-MONGODB_URI=your_mongodb_connection_string
-JWT_SECRET=your_jwt_secret_key
+PORT=1200
+DB_CONNECT_STRING=your_mongodb_connection_string
+JWT_SECRET_KEY=your_jwt_secret_key
+FRONTEND_URL=http://localhost:5173
 CLOUDINARY_CLOUD_NAME=your_cloudinary_cloud_name
 CLOUDINARY_API_KEY=your_cloudinary_api_key
 CLOUDINARY_API_SECRET=your_cloudinary_api_secret
@@ -81,7 +82,7 @@ CLOUDINARY_API_SECRET=your_cloudinary_api_secret
 #### Frontend (`frontend/.env`)
 Create a `.env` file in the `frontend` directory and add the following (adjust the URL if your backend runs on a different port):
 ```env
-VITE_BACKEND_URL=http://localhost:5000
+VITE_API_URL=http://localhost:1200
 ```
 
 ### Running the Application
@@ -101,6 +102,11 @@ cd frontend
 npm run dev
 ```
 *The frontend application will be accessible at `http://localhost:5173`.*
+
+Check backend readiness at `http://localhost:1200/api/health`.
+
+For Gmail email OTPs, configure `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM` in
+`backend/.env`. `SMTP_PASS` must be a Gmail App Password.
 
 ## 📜 Scripts
 

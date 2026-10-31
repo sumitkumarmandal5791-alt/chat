@@ -1,5 +1,6 @@
 require("dotenv").config();
 const express = require("express");
+const mongoose = require("mongoose");
 const { main } = require("./src/cinfigure");
 const app = express();
 const bodyParser = require("body-parser");
@@ -18,12 +19,13 @@ const { verifyEmailConnection } = require("./services/emailService");
 const path = require("path");
 
 const allowedOrigins = [
+    ...(process.env.FRONTEND_URLS || "").split(","),
     process.env.FRONTEND_URL || "http://localhost:5173",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:5174",
     "http://127.0.0.1:5174"
-];
+].map((origin) => origin.trim()).filter(Boolean);
 
 app.use(cors({
     origin: (origin, callback) => {
@@ -31,7 +33,7 @@ app.use(cors({
         if (!origin || allowedOrigins.includes(origin)) {
             return callback(null, true);
         }
-        return callback(null, true); // permissive fallback for local dev
+        return callback(new Error(`CORS origin not allowed: ${origin}`));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
@@ -44,13 +46,21 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 const server = http.createServer(app);
-const io = initializeSocket(server);
+const io = initializeSocket(server, allowedOrigins);
 
 // Attach Socket.IO instance and user map to every request
 app.use((req, res, next) => {
     req.io = io;
     req.socketUserMap = io.socketUserMap;
     next();
+});
+
+app.get("/api/health", (req, res) => {
+    res.status(200).json({
+        status: "ok",
+        environment: process.env.NODE_ENV || "development",
+        database: mongoose.connection.readyState === 1 ? "connected" : "disconnected"
+    });
 });
 
 app.use(`/api/auth`, authRoutes);

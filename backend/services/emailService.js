@@ -3,7 +3,8 @@ const nodemailer = require('nodemailer');
 const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
 const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
 const smtpUser = process.env.SMTP_USER || process.env.EMAIL;
-const smtpPass = process.env.SMTP_PASS || process.env.EMAIL_PASSWORD;
+const smtpPass = (process.env.SMTP_PASS || process.env.EMAIL_PASSWORD || '').trim();
+const smtpFrom = process.env.SMTP_FROM || smtpUser;
 
 const transporter = nodemailer.createTransport({
     host: smtpHost,
@@ -29,7 +30,14 @@ const verifyEmailConnection = async () => {
         console.log('✅ [SMTP READY] Nodemailer connected successfully to', smtpHost);
         return true;
     } catch (err) {
-        console.error('❌ [SMTP ERROR] Transporter connection verification failed:', err.message);
+        console.error('❌ [SMTP ERROR] Transporter connection verification failed:', {
+            host: smtpHost,
+            port: smtpPort,
+            user: smtpUser,
+            code: err.code,
+            responseCode: err.responseCode,
+            message: err.message
+        });
         return false;
     }
 };
@@ -95,7 +103,7 @@ const sendOtpEmail = async (toEmail, otp) => {
 
     try {
         const info = await transporter.sendMail({
-            from: `"${appName}" <${smtpUser}>`,
+            from: `"${appName}" <${smtpFrom}>`,
             to: toEmail,
             subject: `${otp} is your ${appName} verification code`,
             text: plainText,
@@ -103,7 +111,12 @@ const sendOtpEmail = async (toEmail, otp) => {
         });
         return { success: true, messageId: info.messageId };
     } catch (err) {
-        console.error('Email send failed to recipient:', toEmail.replace(/(?<=.{2}).(?=[^@]*?@)/g, '*'), err.message);
+        console.error('Email send failed:', {
+            recipient: toEmail.replace(/(?<=.{2}).(?=[^@]*?@)/g, '*'),
+            code: err.code,
+            responseCode: err.responseCode,
+            message: err.message
+        });
         throw { status: 502, message: 'Failed to deliver verification email. Please verify SMTP settings.' };
     }
 };
@@ -113,4 +126,3 @@ module.exports = {
     verifyEmailConnection,
     sendOtpEmail
 };
-

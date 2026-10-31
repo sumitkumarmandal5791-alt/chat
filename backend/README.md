@@ -61,15 +61,17 @@ backend/
 2.  **Configure environment variables**:
     Create a `.env` file in the root of the `backend` directory:
     ```env
-    PORT=5000
-    MONGO_URI=mongodb://localhost:27017/alyx_chat
-    JWT_SECRET=your_jwt_secret_key_here
+    PORT=1200
+    DB_CONNECT_STRING=mongodb://localhost:27017/alyx_chat
+    JWT_SECRET_KEY=your_jwt_secret_key_here
+    FRONTEND_URL=http://localhost:5173
 
     # Email SMTP configuration
     SMTP_HOST=smtp.gmail.com
     SMTP_PORT=587
     SMTP_USER=your_email@gmail.com
-    SMTP_PASS=your_email_app_password
+    SMTP_PASS=your_16_character_gmail_app_password
+    SMTP_FROM=your_email@gmail.com
 
     # Twilio SMS API configuration
     TWILIO_ACCOUNT_SID=your_twilio_sid
@@ -91,3 +93,9 @@ backend/
         ```bash
         npm start
         ```
+
+The backend readiness endpoint is available at `http://localhost:1200/api/health`.
+
+For Gmail, enable 2-Step Verification and create an App Password under Google
+Account security. Use that 16-character value as `SMTP_PASS`; do not use your
+normal Gmail password.

@@ -2,6 +2,7 @@ import { io } from "socket.io-client"
 import userUserStore from "../store/useruserStore";
 
 let socket = null;
+const socketUrl = import.meta.env.VITE_API_URL || window.location.origin;
 
 export const initialzeSocket = (inputUser) => {
     
@@ -10,7 +11,7 @@ export const initialzeSocket = (inputUser) => {
     const user = inputUser || userUserStore.getState().user;
     if (!user) return null;
 
-    socket = io(import.meta.env.VITE_API_URL, {
+    socket = io(socketUrl, {
         withCredentials: true,
         transports: ["websocket"],
         // reconnection:true,
