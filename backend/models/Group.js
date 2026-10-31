@@ -5,8 +5,7 @@ const memberSchema = new mongoose.Schema(
         userId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'user',
-            required: true,
-            index: true
+            required: true
         },
         role: {
             type: String,
@@ -99,4 +98,3 @@ groupSchema.index({ createdAt: -1 });
 
 const Group = mongoose.model('Group', groupSchema);
 module.exports = Group;
-
