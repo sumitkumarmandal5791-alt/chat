@@ -1,34 +1,56 @@
-import React, { useRef, useState } from 'react';
-import { FaCheck, FaCheckDouble, FaPlus, FaSmile } from 'react-icons/fa';
+import React, { useRef, useState, lazy, Suspense } from 'react';
+import {
+    Check,
+    CheckCheck,
+    Smile,
+    Reply,
+    Copy,
+    Trash2,
+    MoreVertical,
+    Plus,
+    X
+} from 'lucide-react';
 import { format } from 'date-fns';
-import { HiDotsVertical } from "react-icons/hi";
-import useOutside from "../../hooks/useOutside";
-import Picker from 'emoji-picker-react';
-import { RxCross2 } from 'react-icons/rx';
+import useOutside from '../../hooks/useOutside';
+import { toast } from 'react-toastify';
 
-const MessageBubble = ({ message, theme, onReact, currentUser, deleteMessage }) => {
+const Picker = lazy(() => import('emoji-picker-react'));
+
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+const MessageBubble = ({
+    message,
+    theme,
+    onReact,
+    currentUser,
+    deleteMessage,
+    onStartReply,
+    onOpenMedia
+}) => {
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [showReactions, setShowReactions] = useState(false);
-    const messageRef = useRef(null);
     const [showOptions, setShowOptions] = useState(false);
-    const optionRef = useRef(null);
 
+    const messageRef = useRef(null);
+    const optionRef = useRef(null);
     const emojiPickerRef = useRef(null);
     const reactionsMenuRef = useRef(null);
 
-    // Check if the current user sent this message
-    const senderId = message?.senderId?._id || message?.senderId || message?.sender?._id || message?.sender;
-    const currentUserId = currentUser?._id || currentUser?.id;
-    const isUserMessage = senderId === currentUserId;
+    const isDark = theme === 'dark';
 
-    const bubbleClass = isUserMessage ? 'chat-end' : `chat-start`;
+    const senderId =
+        message?.senderId?._id ||
+        message?.senderId ||
+        message?.sender?._id ||
+        message?.sender;
+    const currentUserId = (currentUser?._id || currentUser?.id)?.toString();
+    const isUserMessage = senderId?.toString() === currentUserId;
 
-    // Content container styles based on sender vs receiver
-    const bubbleContentClass = isUserMessage
-        ? `chat-bubble md:max-w-[50%] min-w-[130px] p-3 rounded-2xl rounded-tr-none shadow-sm ${theme === 'dark' ? "bg-[#144d38] text-white" : "bg-emerald-100 text-slate-800"}`
-        : `chat-bubble md:max-w-[50%] min-w-[130px] p-3 rounded-2xl rounded-tl-none shadow-sm ${theme === 'dark' ? "bg-slate-800 text-slate-100" : "bg-white border border-slate-100 text-slate-800"}`;
+    useOutside(emojiPickerRef, () => setShowEmojiPicker(false));
+    useOutside(reactionsMenuRef, () => setShowReactions(false));
+    useOutside(optionRef, () => setShowOptions(false));
 
-    const quickReactions = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+    if (!message) return null;
 
     const handleReact = (emoji) => {
         onReact(message._id, emoji);
@@ -36,166 +58,265 @@ const MessageBubble = ({ message, theme, onReact, currentUser, deleteMessage }) 
         setShowReactions(false);
     };
 
-    useOutside(emojiPickerRef, () => setShowEmojiPicker(false))
-    useOutside(reactionsMenuRef, () => setShowReactions(false))
-    useOutside(optionRef, () => setShowOptions(false))
+    const handleCopy = () => {
+        const textToCopy = message.content || message.message || '';
+        if (textToCopy) {
+            navigator.clipboard.writeText(textToCopy);
+            toast.success('Message copied');
+        }
+        setShowOptions(false);
+    };
 
-    if (message === 0) return;
+    const handleReply = () => {
+        if (onStartReply) {
+            onStartReply(message);
+        }
+        setShowOptions(false);
+    };
+
+    const timeStr = format(new Date(message.createdAt || Date.now()), 'HH:mm');
 
     return (
-        <div className={`chat ${bubbleClass}`}>
-            <div className={`${bubbleContentClass} relative group`} ref={messageRef}>
-                <div className="flex justify-center gap-2">
-                    {message.contentType === 'text' && <p className="mr-2">{message.content || message.message}</p>}
-                    {message.contentType === 'image' && (
-                        <div>
-                            <img
-                                src={message.image || message.imageOrVideoUrl}
-                                alt="image-attachment"
-                                className="rounded-lg max-w-xs"
-                            />
-                            {(message.content || message.message) && (
-                                <p className="mt-1">{message.content || message.message}</p>
-                            )}
-                        </div>
-                    )}
-                    {message.contentType === 'video' && (
-                        <div>
-                            <video
-                                src={message.video || message.imageOrVideoUrl}
-                                controls
-                                className="rounded-lg max-w-xs"
-                            />
-                            {(message.content || message.message) && (
-                                <p className="mt-1">{message.content || message.message}</p>
-                            )}
-                        </div>
-                    )}
-                </div>
-
-                <div className="self-end flex items-center justify-end gap-1 text-xs opacity-60 mt-2 ml-2">
-                    <span>{format(new Date(message.createdAt), "HH:mm")}</span>
-                    {isUserMessage && (
-                        <>
-                            {(message.messageStatus === "sent" || message.messageStatus === "send") && <FaCheck size={12} />}
-                            {message.messageStatus === "delivered" && (
-                                <FaCheckDouble size={12} className="text-gray-500" />
-                            )}
-                            {message.messageStatus === "read" && (
-                                <FaCheckDouble size={12} className="text-blue-500" />
-                            )}
-                        </>
-                    )}
-                </div>
-
-                <div className='absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity z-20'>
-                    <button onClick={() => setShowOptions((prev) => !prev)}
-                        className={`p-1 rounded-full ${theme === 'dark' ? "text-white" : "text-gray-800"}`}
+        <div className={`flex w-full my-1 px-4 md:px-8 ${isUserMessage ? 'justify-end' : 'justify-start'}`}>
+            <div
+                ref={messageRef}
+                className={`relative group max-w-[85%] md:max-w-[65%] rounded-lg p-2 text-sm shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] transition-colors ${
+                    isUserMessage
+                        ? isDark
+                            ? 'bg-[#005c4b] text-[#e9edef] rounded-tr-none wa-bubble-sent-tail'
+                            : 'bg-[#d9fdd3] text-[#111b21] rounded-tr-none wa-bubble-sent-tail'
+                        : isDark
+                        ? 'bg-[#202c33] text-[#e9edef] rounded-tl-none wa-bubble-received-tail'
+                        : 'bg-[#ffffff] text-[#111b21] rounded-tl-none wa-bubble-received-tail'
+                }`}
+            >
+                {/* 1. QUOTED REPLY BLOCK */}
+                {message.replyTo && (
+                    <div
+                        className={`mb-1.5 p-1.5 rounded flex gap-2 border-l-4 text-xs transition-colors ${
+                            isUserMessage
+                                ? isDark
+                                    ? 'bg-[#025142] border-[#25d366] text-[#d1d7db]'
+                                    : 'bg-[#cfeec9] border-[#00a884] text-[#111b21]'
+                                : isDark
+                                ? 'bg-[#182229] border-[#00a884] text-[#8696a0]'
+                                : 'bg-[#f0f2f5] border-[#00a884] text-[#54656f]'
+                        }`}
                     >
-                        <HiDotsVertical size={18} />
+                        {message.replyTo.mediaUrl && (
+                            <div className="w-10 h-10 rounded shrink-0 overflow-hidden bg-black/10">
+                                {message.replyTo.contentType === 'video' ? (
+                                    <video src={message.replyTo.mediaUrl} className="w-full h-full object-cover" />
+                                ) : (
+                                    <img src={message.replyTo.mediaUrl} alt="Reply media" className="w-full h-full object-cover" />
+                                )}
+                            </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-[11px] text-[#00a884] truncate">
+                                {message.replyTo.statusId ? 'Status Update' : message.replyTo.senderName || 'Reply'}
+                            </p>
+                            <p className="truncate opacity-80 text-[11px] mt-0.5">
+                                {message.replyTo.text || (message.replyTo.mediaUrl ? 'Media' : '')}
+                            </p>
+                        </div>
+                    </div>
+                )}
+
+                {/* 2. MEDIA ATTACHMENTS */}
+                {message.contentType === 'image' && (
+                    <div className="rounded overflow-hidden mb-1 cursor-pointer">
+                        <img
+                            src={message.image || message.imageOrVideoUrl}
+                            alt="Attachment"
+                            onClick={() => onOpenMedia && onOpenMedia(message.image || message.imageOrVideoUrl, 'image')}
+                            className="w-full max-h-80 object-cover rounded hover:opacity-95 transition-opacity"
+                            loading="lazy"
+                        />
+                    </div>
+                )}
+
+                {message.contentType === 'video' && (
+                    <div className="rounded overflow-hidden mb-1">
+                        <video
+                            src={message.video || message.imageOrVideoUrl}
+                            controls
+                            playsInline
+                            className="w-full max-h-80 object-cover rounded"
+                        />
+                    </div>
+                )}
+
+                {/* 3. MESSAGE TEXT + INLINE TIMESTAMP & TICKS */}
+                <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-0.5 leading-snug">
+                    {(message.content || message.message) && (
+                        <p className="break-words whitespace-pre-wrap flex-1 min-w-[60px] text-sm">
+                            {message.content || message.message}
+                        </p>
+                    )}
+
+                    {/* Timestamp & Status Ticks */}
+                    <div className="flex items-center gap-1 text-[11px] opacity-70 shrink-0 self-end ml-auto select-none pt-0.5">
+                        <span>{timeStr}</span>
+                        {isUserMessage && (
+                            <>
+                                {message.messageStatus === 'sent' && (
+                                    <Check size={13} className="text-inherit" />
+                                )}
+                                {message.messageStatus === 'delivered' && (
+                                    <CheckCheck size={13} className="text-inherit" />
+                                )}
+                                {message.messageStatus === 'read' && (
+                                    <CheckCheck size={13} className="text-[#53bdeb]" />
+                                )}
+                            </>
+                        )}
+                    </div>
+                </div>
+
+                {/* 4. HOVER TRIGGER ACTIONS */}
+                <div
+                    className={`absolute top-1 ${
+                        isUserMessage ? '-left-12' : '-right-12'
+                    } opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 z-20`}
+                >
+                    <button
+                        onClick={() => setShowReactions((prev) => !prev)}
+                        aria-label="React"
+                        title="React"
+                        className={`p-1.5 rounded-full shadow transition-colors ${
+                            isDark ? 'bg-[#202c33] text-[#8696a0] hover:text-[#e9edef]' : 'bg-white text-[#54656f] hover:text-[#111b21] border border-[#e9edef]'
+                        }`}
+                    >
+                        <Smile size={14} />
+                    </button>
+
+                    <button
+                        onClick={() => setShowOptions((prev) => !prev)}
+                        aria-label="Message options"
+                        title="Options"
+                        className={`p-1.5 rounded-full shadow transition-colors ${
+                            isDark ? 'bg-[#202c33] text-[#8696a0] hover:text-[#e9edef]' : 'bg-white text-[#54656f] hover:text-[#111b21] border border-[#e9edef]'
+                        }`}
+                    >
+                        <MoreVertical size={14} />
                     </button>
                 </div>
 
+                {/* Quick Emoji Reaction Pill */}
+                {showReactions && (
+                    <div
+                        ref={reactionsMenuRef}
+                        className={`absolute -top-10 ${
+                            isUserMessage ? 'right-0' : 'left-0'
+                        } flex items-center bg-[#202c33] border border-[#2a3942] rounded-full px-2 py-1 gap-1 shadow-lg z-40 select-none`}
+                    >
+                        {QUICK_REACTIONS.map((emoji) => (
+                            <button
+                                key={emoji}
+                                onClick={() => handleReact(emoji)}
+                                className="text-sm p-0.5 hover:scale-125 transition-transform"
+                            >
+                                {emoji}
+                            </button>
+                        ))}
+                        <div className="w-[1px] h-3.5 bg-[#374248] mx-0.5" />
+                        <button
+                            onClick={() => {
+                                setShowReactions(false);
+                                setShowEmojiPicker(true);
+                            }}
+                            className="p-1 rounded-full text-[#8696a0] hover:text-white"
+                        >
+                            <Plus size={12} />
+                        </button>
+                    </div>
+                )}
+
+                {/* Emoji Picker Popover */}
+                {showEmojiPicker && (
+                    <div ref={emojiPickerRef} className="absolute bottom-10 left-0 z-50 shadow-2xl rounded-lg overflow-hidden">
+                        <Suspense fallback={<div className="p-4 bg-[#202c33] text-xs text-[#8696a0]">Loading emojis...</div>}>
+                            <Picker
+                                onEmojiClick={(emojiData) => handleReact(emojiData.emoji)}
+                                theme={isDark ? 'dark' : 'light'}
+                            />
+                        </Suspense>
+                    </div>
+                )}
+
+                {/* Dropdown Options Menu */}
                 {showOptions && (
                     <div
                         ref={optionRef}
-                        className={`absolute right-2 top-8 rounded-2xl shadow-xl border p-1 min-w-[140px] z-50 ${
-                            theme === 'dark' 
-                                ? "bg-slate-900 border-slate-800 text-slate-200" 
-                                : "bg-white border-slate-100 text-slate-700"
+                        className={`absolute right-1 top-8 rounded-lg shadow-xl border py-1 min-w-[130px] z-40 text-xs ${
+                            isDark ? 'bg-[#233138] border-[#2a3942] text-[#d1d7db]' : 'bg-white border-[#e9edef] text-[#111b21]'
                         }`}
                     >
                         <button
-                            onClick={() => {
-                                deleteMessage(message._id, "me");
-                                setShowOptions(false);
-                            }}
-                            className={`w-full text-left px-3.5 py-2 text-xs rounded-xl transition-colors ${
-                                theme === 'dark' ? "hover:bg-slate-800/80" : "hover:bg-slate-50"
+                            onClick={handleReply}
+                            className={`w-full px-3 py-1.5 flex items-center gap-2 text-left transition-colors ${
+                                isDark ? 'hover:bg-[#182229]' : 'hover:bg-[#f5f6f6]'
                             }`}
                         >
-                            Delete for me
+                            <Reply size={13} className="text-[#00a884]" />
+                            <span>Reply</span>
                         </button>
+
+                        <button
+                            onClick={handleCopy}
+                            className={`w-full px-3 py-1.5 flex items-center gap-2 text-left transition-colors ${
+                                isDark ? 'hover:bg-[#182229]' : 'hover:bg-[#f5f6f6]'
+                            }`}
+                        >
+                            <Copy size={13} />
+                            <span>Copy</span>
+                        </button>
+
+                        <button
+                            onClick={() => {
+                                deleteMessage(message._id, 'me');
+                                setShowOptions(false);
+                            }}
+                            className={`w-full px-3 py-1.5 flex items-center gap-2 text-left text-rose-500 transition-colors ${
+                                isDark ? 'hover:bg-[#182229]' : 'hover:bg-[#f5f6f6]'
+                            }`}
+                        >
+                            <Trash2 size={13} />
+                            <span>Delete for me</span>
+                        </button>
+
                         {isUserMessage && (
                             <button
                                 onClick={() => {
-                                    deleteMessage(message._id, "everyone");
+                                    deleteMessage(message._id, 'everyone');
                                     setShowOptions(false);
                                 }}
-                                className={`w-full text-left px-3.5 py-2 text-xs rounded-xl transition-colors text-red-500 font-medium ${
-                                    theme === 'dark' ? "hover:bg-red-500/10" : "hover:bg-red-55"
+                                className={`w-full px-3 py-1.5 flex items-center gap-2 text-left text-rose-500 font-medium transition-colors ${
+                                    isDark ? 'hover:bg-[#182229]' : 'hover:bg-[#f5f6f6]'
                                 }`}
                             >
-                                Delete for everyone
+                                <Trash2 size={13} />
+                                <span>Delete for everyone</span>
                             </button>
                         )}
                     </div>
                 )}
 
-                <div className={`absolute ${isUserMessage ? "-left-10" : "-right-10"}  topo-1/2 transform -translate -y-1/2 opacity-0 group-hover:opacity-100 transition opacity flex flex-col gap-2 `}>
-                    <button
-                        onClick={() => setShowReactions(!showReactions)}
-                        className={`p-2 rounded-full ${theme === 'dark' ? "bg-[#202c33] hover :bg-[#202c33]/80 "
-                            : "bg-white hover:bg-gray-100"
-                            }  shadow-lg`}
-
-                    >
-                        <FaSmile className={`${theme === 'dark' ? "text-gray-300" : "text-gray-800"}`} />
-                    </button>
-                </div>
-
-                {showReactions && (
-                    <div
-                        ref={reactionsMenuRef}
-                        className={`absolute -top-8 ${isUserMessage ? "left-0 " : "left-36"
-                            }  transform -tanslate-y-1/2  flex items-center bg-[#202c33] rounded-full px-2 py-1.5 gap-1 shadow-lg z-50`}
-                    >
-                        {quickReactions.map((emoji, indxe) => (
-                            <button
-                                key={indxe}
-                                onClick={() => handleReact(emoji)}
-                                className={`hover:scale-125 transition-transform p-1`}
-                            >
-                                {emoji}
-                            </button>
-                        ))}
-                        <div className='w-[1px] h-5 bg-gray-600 mx-1' />
-                        <button className='hover :bg[#ffffff1al]  rounded-full p-1'
-                            onClick={() => setShowEmojiPicker(true)}
-                        >
-                            <FaPlus className='h-4 w-4 text-gray-300' />
-                        </button>
-                    </div>
-                )}
-
-                {showEmojiPicker && (
-                    <div ref={emojiPickerRef} className="absolute bottom-20 left-2 z-50">
-                        <div className='relative'>
-                            <Picker
-                                onEmojiClick={(emojiData) => handleReact(emojiData.emoji)}
-
-                            />
-
-                        </div>
-                        <button
-                            onClick={() => setShowEmojiPicker(false)}
-                            className='absolute  bottom-2 text-gray-400 hover:text-gray-600 z-10'>
-                            <RxCross2 />
-                        </button>
-                    </div>
-                )}
-
-
+                {/* 5. FLOATING REACTIONS PILL */}
                 {message.reaction && message.reaction.length > 0 && (
-                    <div className={`absolute -bottom-5 ${isUserMessage ? "right-2" : "left-2"}  ${theme === 'dark' ? "bg-[#2a3942 " : "bg-gray-200"}  rounded-full px-2  shadow-md`}>
-
-                        <div className='flex gap-1'>
-                            {message.reaction.map((reaction, index) => (
-                                <div key={index} className='mr-1'>
-                                    {reaction.emoji}
-                                </div>
-                            ))}
-                        </div>
+                    <div
+                        className={`absolute -bottom-2.5 ${
+                            isUserMessage ? 'right-2' : 'left-2'
+                        } flex items-center gap-0.5 px-1.5 py-0.5 rounded-full shadow-sm text-xs border ${
+                            isDark
+                                ? 'bg-[#202c33] border-[#2a3942] text-white'
+                                : 'bg-white border-[#e9edef] text-slate-800'
+                        }`}
+                    >
+                        {message.reaction.map((r, idx) => (
+                            <span key={idx}>{r.emoji}</span>
+                        ))}
                     </div>
                 )}
             </div>

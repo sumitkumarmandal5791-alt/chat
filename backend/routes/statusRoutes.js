@@ -1,15 +1,32 @@
-const express = require("express")
-const statusController = require("../controllers/statusController")
-const { authMiddleWare } = require("../middleware/authmiddleware")
-const { uploadFileTocloudinary, multerMiddleWare } = require("../src/cloudaniry")
-const router = express.Router()
+const express = require('express');
+const statusController = require('../controllers/statusController');
+const { authMiddleWare } = require('../middleware/authmiddleware');
 
-router.post("/", authMiddleWare, multerMiddleWare, statusController.createStatus)
-router.get("/", authMiddleWare, statusController.getStatuses)
+const router = express.Router();
 
-router.put("/:statusId/view", authMiddleWare, statusController.viewStatus)
-router.delete("/:statusId", authMiddleWare, statusController.deleteStatus)
+// Direct Cloudinary upload signature
+router.get('/upload-signature', authMiddleWare, statusController.getUploadSignature);
 
+// Status CRUD & Feed
+router.post('/', authMiddleWare, statusController.createStatus);
+router.get('/feed', authMiddleWare, statusController.getFeed);
+router.get('/mine', authMiddleWare, statusController.getMyStatuses);
 
+// Views and Viewers
+router.post('/:id/view', authMiddleWare, statusController.viewStatus);
+router.get('/:id/viewers', authMiddleWare, statusController.getViewers);
+
+// Delete Status
+router.delete('/:id', authMiddleWare, statusController.deleteStatus);
+
+// Reply to Status (creates 1:1 message)
+router.post('/:id/reply', authMiddleWare, statusController.replyStatus);
+
+// Status Muting
+router.post('/mute/:userId', authMiddleWare, statusController.muteUser);
+router.delete('/mute/:userId', authMiddleWare, statusController.unmuteUser);
+
+// Status Privacy Defaults
+router.patch('/privacy', authMiddleWare, statusController.updateStatusPrivacy);
 
 module.exports = router;

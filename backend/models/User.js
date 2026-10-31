@@ -1,74 +1,104 @@
 const mongoose = require('mongoose');
 
+const sessionSchema = new mongoose.Schema({
+    refreshTokenHash: {
+        type: String,
+        required: true
+    },
+    device: {
+        type: String,
+        default: 'Unknown Device'
+    },
+    ip: {
+        type: String,
+        default: '0.0.0.0'
+    },
+    userAgent: {
+        type: String,
+        default: 'Unknown User-Agent'
+    },
+    lastActiveAt: {
+        type: Date,
+        default: Date.now
+    },
+    createdAt: {
+        type: Date,
+        default: Date.now
+    }
+}, { _id: true });
 
 const UserSchema = new mongoose.Schema({
-    id: {
-        type: Number,
-        unique: true,
-        sparse: true
-    },
     phoneNumber: {
-        type: Number,
+        type: String,
         sparse: true,
-        unique: true
-    },
-
-    phoneSuffix: {
-        type: Number,
-
-    },
-
-    name: {
-        type: String,
-    },
-    username: {
-        type: String,
         unique: true,
-        sparse: true
+        trim: true
     },
     email: {
         type: String,
         lowercase: true,
         trim: true,
+        sparse: true,
+        unique: true,
         validate: {
             validator: function (v) {
+                if (!v) return true;
                 return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
             },
             message: props => `${props.value} is not a valid email address!`
         }
-
     },
-    emailOtp: {
+    name: {
         type: String,
+        trim: true,
+        default: ''
     },
-    emailOtpExpiry: {
-        type: Date,
+    username: {
+        type: String,
+        unique: true,
+        sparse: true,
+        trim: true
     },
     profilePicture: {
         type: String,
+        default: ''
     },
     about: {
         type: String,
+        default: 'Hey there! I am using WhatsApp.'
     },
     lastSeen: {
         type: Date,
-        default: Date.now,
+        default: Date.now
     },
-    status: {
-        type: String,
-        enum: ["online", "offline"],
-        default: "offline",
+    isOnline: {
+        type: Boolean,
+        default: false
     },
     isVerified: {
         type: Boolean,
-        default: false,
+        default: false
     },
-    agreed: {
-        type: Boolean,
-        default: false,
-    },
+    // Multi-device active session tracking
+    sessions: [sessionSchema],
+    // WhatsApp Status Privacy default setting
+    statusPrivacy: {
+        mode: {
+            type: String,
+            enum: ['contacts', 'contacts_except', 'only_share'],
+            default: 'contacts'
+        },
+        userIds: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        }]
+    }
+}, {
+    timestamps: true
+});
 
-}, { timestamps: true })
+UserSchema.index({ email: 1 });
+UserSchema.index({ phoneNumber: 1 });
+UserSchema.index({ username: 1 });
 
-const User = mongoose.model("user", UserSchema)
-module.exports = User; 
+module.exports = mongoose.model('User', UserSchema);

@@ -1,18 +1,20 @@
+import React, { useEffect, useState } from "react";
+import { useLocation, Link } from "react-router-dom";
+import { MessageSquare, CircleDashed, User, Settings } from "lucide-react";
 import useLayoutStore from "../store/layoutStore";
 import useThemeStore from "../store/themeStore";
-import { useState, useEffect } from "react";
-import { useLocation } from "react-router-dom";
-import userUserStore from "../store/useruserStore";
-import { FaWhatsapp, FaCircleNotch, FaUser, FaCog } from "react-icons/fa";
-import { Link } from 'react-router-dom'
-import { motion } from "framer-motion";
+import useuserStore from "../store/useruserStore";
+import { useStatusStore } from "../store/statusStore";
 
 const SideBar = () => {
     const location = useLocation();
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-    const { theme, setTheme } = useThemeStore();
-    const { user } = userUserStore();
+    const { theme } = useThemeStore();
+    const { user } = useuserStore();
     const { activeTab, setActiveTab, selectedContact } = useLayoutStore();
+    const hasUnviewed = useStatusStore((state) => state.hasUnviewed);
+
+    const isDark = theme === "dark";
 
     useEffect(() => {
         const handleResize = () => {
@@ -23,79 +25,108 @@ const SideBar = () => {
     }, []);
 
     useEffect(() => {
-        if (location.pathname === "/homePage/") {
-            setActiveTab("chats")
+        if (location.pathname === "/homePage" || location.pathname === "/homePage/" || location.pathname === "/chat") {
+            setActiveTab("chats");
+        } else if (location.pathname === "/status") {
+            setActiveTab("status");
+        } else if (location.pathname === "/userDetail") {
+            setActiveTab("userDetail");
+        } else if (location.pathname === "/setting") {
+            setActiveTab("setting");
         }
-
-        else if (location.pathname === "/status") {
-            setActiveTab("status")
-        }
-
-        else if (location.pathname === '/userDetail') {
-            setActiveTab("userDetail")
-        }
-
-        else if (location.pathname === '/setting') {
-            setActiveTab("setting")
-        }
-
-    }, [location, setActiveTab])
-
+    }, [location, setActiveTab]);
 
     if (isMobile && selectedContact) {
         return null;
     }
 
+    const navItems = [
+        {
+            id: "chats",
+            to: "/homePage",
+            icon: MessageSquare,
+            label: "Chats",
+            badge: false
+        },
+        {
+            id: "status",
+            to: "/status",
+            icon: CircleDashed,
+            label: "Status",
+            badge: hasUnviewed
+        },
+        {
+            id: "setting",
+            to: "/setting",
+            icon: Settings,
+            label: "Settings",
+            badge: false
+        }
+    ];
 
-    const SideBarContenet = (
-        <>
-            <Link
-                to="/homePage"
-                className={`${isMobile ? " " : "mb-4"}  ${activeTab === 'chats' && "bg-gray-300 shadow-sm p-2 rounded-full"}`}
-            >
-                <FaWhatsapp
-                    className={`h-6 w-6 ${activeTab === 'chats' ? (theme === "dark" ? "text-gray-800" : "") : (theme === 'dark' ? "text-gray-300" : "text-gray-800")} focus:outline-none`} />
-            </Link>
-
-            <Link
-                to="/status"
-                className={`${isMobile ? " " : "mt-10"}  ${activeTab === 'status' && "bg-gray-300 shadow-sm p-2 rounded-full"}`}
-            >
-                <FaCircleNotch
-                    className={`h-6 w-6 ${activeTab === 'status' ? (theme === "dark" ? "text-gray-800" : "") : (theme === 'dark' ? "text-gray-300" : "text-gray-800")} focus:outline-none`} />
-            </Link>
-
-            <Link
-                to="/userDetail"
-                className={`${isMobile ? " " : "mb-4"}  ${activeTab === 'userDetail' && "bg-gray-300 shadow-sm p-2 rounded-full"}`}
-            >
-                <FaUser
-                    className={`h-6 w-6 ${activeTab === 'userDetail' ? (theme === "dark" ? "text-gray-800" : "") : (theme === 'dark' ? "text-gray-300" : "text-gray-800")} focus:outline-none`} />
-            </Link>
-
-            <Link
-                to="/setting"
-                className={`${isMobile ? " " : "mb-4"}  ${activeTab === 'setting' && "bg-gray-300 shadow-sm p-2 rounded-full"}`}
-            >
-                <FaCog
-                    className={`h-6 w-6 ${activeTab === 'setting' ? (theme === "dark" ? "text-gray-800" : "") : (theme === 'dark' ? "text-gray-300" : "text-gray-800")} focus:outline-none`} />
-            </Link>
-        </>
-    )
     return (
-        <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.5 }}
-            // className="flex flex-col bg-gradient-to-b from-emerald-200 to-emerald-100 shadow-lg border-r border-gray-200/50 p-4"
-            className={`${isMobile ? "fixed bottom-0 left-0 right-0 h-16 z-50" : "w-16 h-screen border-r-2"}
-            ${theme === "dark" ? "bg-[rbg(239,242,254)]" : "border-gray-300"}
-            bg-opacity-90 flex items-center py-4 shadow-lg 
-            ${isMobile ? " flex-row justify-around" : "flex-col justify-between"}
-            `}
+        <aside
+            aria-label="Navigation Rail"
+            className={`${
+                isMobile
+                    ? "fixed bottom-0 left-0 right-0 h-14 z-40 border-t flex flex-row justify-around items-center px-4 pb-[env(safe-area-inset-bottom)]"
+                    : "w-16 h-screen border-r flex flex-col justify-between items-center py-4 shrink-0 z-20"
+            } ${
+                isDark
+                    ? "bg-[#202c33] border-[#222d34] text-[#8696a0]"
+                    : "bg-[#f0f2f5] border-[#e9edef] text-[#54656f]"
+            } transition-colors duration-150 select-none`}
         >
-            {SideBarContenet}
-        </motion.div>
-    )
-}
+            {/* Main Navigation Icons */}
+            <nav className={`flex ${isMobile ? "flex-row w-full justify-around items-center" : "flex-col gap-2 items-center"}`}>
+                {navItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = activeTab === item.id;
+
+                    return (
+                        <Link
+                            key={item.id}
+                            to={item.to}
+                            aria-label={item.label}
+                            title={item.label}
+                            className={`relative p-2.5 rounded-full transition-colors duration-150 flex items-center justify-center ${
+                                isActive
+                                    ? isDark
+                                        ? "bg-[#374248] text-[#00a884]"
+                                        : "bg-[#e9edef] text-[#00a884]"
+                                    : isDark
+                                    ? "hover:bg-[#2a3942] hover:text-[#d1d7db]"
+                                    : "hover:bg-[#e9edef] hover:text-[#111b21]"
+                            }`}
+                        >
+                            <Icon size={20} strokeWidth={isActive ? 2.3 : 1.8} />
+
+                            {/* Unviewed Status notification dot */}
+                            {item.badge && (
+                                <span className="absolute top-2 right-2 w-2 h-2 bg-[#00a884] rounded-full ring-2 ring-[#202c33]" />
+                            )}
+                        </Link>
+                    );
+                })}
+            </nav>
+
+            {/* Bottom Profile Avatar on Desktop */}
+            {!isMobile && (
+                <Link
+                    to="/userDetail"
+                    aria-label="Profile"
+                    title={user?.username || "Profile"}
+                    className="p-0.5 rounded-full hover:ring-2 hover:ring-[#00a884] transition-all"
+                >
+                    <img
+                        src={user?.profilePicture || "https://via.placeholder.com/40"}
+                        alt={user?.username || "User avatar"}
+                        className="w-8 h-8 rounded-full object-cover"
+                    />
+                </Link>
+            )}
+        </aside>
+    );
+};
+
 export default SideBar;

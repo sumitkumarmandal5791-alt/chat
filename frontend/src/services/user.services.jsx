@@ -1,63 +1,112 @@
+import axiosInstance, { setAccessToken } from "./url.service";
 
-import axiosInstance from "./url.service";
-
-// 1. Send OTP (Payload keys match whatever backend expects)
+// 1. Send OTP
 export const sendOtp = async (payload) => {
     try {
         const response = await axiosInstance.post("/auth/send-otp", payload);
-       // console.log("OTP sent successfully:", response.data);
         return response.data;
     } catch (error) {
-        throw error.response?.data?.message || "An error occurred while sending OTP.";
+        throw error.response?.data?.message || "An error occurred while sending verification code.";
     }
 };
 
-// 2. Verify OTP (Crucial: Include otp in payload)
+// 2. Verify OTP
 export const verifyOtp = async (payload) => {
     try {
         const response = await axiosInstance.post("/auth/verify-otp", payload);
-        console.log("OTP sent successfully:", response.data);
-        return response.data; // Expected backend response format: { isNewUser: true/false }
+        if (response.data?.accessToken) {
+            setAccessToken(response.data.accessToken);
+        }
+        return response.data;
     } catch (error) {
-        throw error.response?.data?.message || "An error occurred while verifying OTP.";
+        throw error.response?.data?.message || "Invalid or expired verification code.";
     }
 };
 
-// 3. Complete/Update Profile
+// 3. Resend OTP
+export const resendOtp = async (payload) => {
+    try {
+        const response = await axiosInstance.post("/auth/resend-otp", payload);
+        return response.data;
+    } catch (error) {
+        throw error.response?.data?.message || "An error occurred while resending verification code.";
+    }
+};
+
+// 4. Complete / Update Profile
 export const updateProfile = async (updatedUserData) => {
     try {
-        const response = await axiosInstance.post("/auth/update-profile", updatedUserData);
+        const isFormData = updatedUserData instanceof FormData;
+        const response = await axiosInstance.post("/auth/complete-profile", updatedUserData, {
+            headers: isFormData ? { "Content-Type": "multipart/form-data" } : {}
+        });
         return response.data;
     } catch (error) {
-        throw error.response?.data?.message || "An error occurred while updating profile.";
+        throw error.response?.data?.message || "An error occurred while saving profile.";
     }
 };
 
-// 4. Check Authentication Status
+// 5. Silent Refresh
+export const refreshToken = async () => {
+    try {
+        const response = await axiosInstance.post("/auth/refresh");
+        if (response.data?.accessToken) {
+            setAccessToken(response.data.accessToken);
+        }
+        return response.data;
+    } catch (error) {
+        setAccessToken(null);
+        throw error.response?.data?.message || "Failed to refresh session.";
+    }
+};
+
+// 6. Check Auth Status / Get Current User
 export const checkUserAuth = async () => {
     try {
-        const response = await axiosInstance.get("/auth/profile");
-        if (response.data && response.data.user) {
-            return { isAuthenticated: true, user: response.data.user };
-        } else {
+        // Try refreshing session first to ensure valid accessToken
+        const refreshRes = await axiosInstance.post("/auth/refresh");
+        if (refreshRes.data?.accessToken && refreshRes.data?.user) {
+            setAccessToken(refreshRes.data.accessToken);
+            return { isAuthenticated: true, user: refreshRes.data.user };
+        }
+    } catch (e) {
+        // Fallback to /auth/me
+        try {
+            const response = await axiosInstance.get("/auth/me");
+            if (response.data?.user) {
+                return { isAuthenticated: true, user: response.data.user };
+            }
+        } catch {
             return { isAuthenticated: false, user: null };
         }
-    } catch (error) {
-        return { isAuthenticated: false, user: null }; // Silent fallback on auth failures
     }
+    return { isAuthenticated: false, user: null };
 };
 
-// 5. Logout User (Renamed from checkUserAuth)
+// 7. Logout Current Device
 export const logoutUser = async () => {
     try {
-        const response = await axiosInstance.get("/auth/logout");
+        const response = await axiosInstance.post("/auth/logout");
+        setAccessToken(null);
         return response.data;
     } catch (error) {
-        throw error.response?.data?.message || "An error occurred during logout.";
+        setAccessToken(null);
+        return { success: true };
     }
 };
 
-// 6. Fetch All Users (Renamed from checkUserAuth)
+// 8. Logout All Devices
+export const logoutAllDevices = async () => {
+    try {
+        const response = await axiosInstance.post("/auth/logout-all");
+        setAccessToken(null);
+        return response.data;
+    } catch (error) {
+        throw error.response?.data?.message || "Failed to terminate all sessions.";
+    }
+};
+
+// 9. Fetch All Users (for contacts & conversations)
 export const getAllUsers = async () => {
     try {
         const response = await axiosInstance.get("/auth/get-all-users");
@@ -67,7 +116,7 @@ export const getAllUsers = async () => {
     }
 };
 
-// 7. Get Conversation List of User
+// 10. Get Conversation List of User
 export const getConversations = async (userId) => {
     try {
         const response = await axiosInstance.get(`/chat/conversation/${userId}`);
@@ -77,7 +126,7 @@ export const getConversations = async (userId) => {
     }
 };
 
-// 8. Get Messages of Specific Conversation
+// 11. Get Messages of Specific Conversation
 export const getMessages = async (conversationId) => {
     try {
         const response = await axiosInstance.get(`/chat/conversations/${conversationId}/messages`);
@@ -87,10 +136,9 @@ export const getMessages = async (conversationId) => {
     }
 };
 
-// 9. Send Message
+// 12. Send Message
 export const sendMessage = async (payload) => {
     try {
-        // payload can be FormData for files or standard object for text
         const headers = payload instanceof FormData ? { "Content-Type": "multipart/form-data" } : {};
         const response = await axiosInstance.post("/chat/send-message", payload, { headers });
         return response.data;
@@ -98,14 +146,3 @@ export const sendMessage = async (payload) => {
         throw error.response?.data?.message || "An error occurred while sending message.";
     }
 };
-
-// 10. Mark Message as Read
-export const markAsRead = async (messageId) => {
-    try {
-        const response = await axiosInstance.put("/chat/messages/read", { messageId });
-        return response.data;
-    } catch (error) {
-        throw error.response?.data?.message || "An error occurred while marking message as read.";
-    }
-};
-

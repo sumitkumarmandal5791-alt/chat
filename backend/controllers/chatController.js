@@ -45,7 +45,17 @@ exports.sendMessage = async (req, res) => {
             return res.status(400).json({ message: "Message content is required" }) 
         }
 
+        let replyTo = null;
+        if (req.body.replyTo) {
+            try {
+                replyTo = typeof req.body.replyTo === 'string' ? JSON.parse(req.body.replyTo) : req.body.replyTo;
+            } catch (e) {
+                replyTo = null;
+            }
+        }
+
         const newMessage = new Message({
+             replyTo,
              conversationId: conversation._id,
              senderId: senderId,
              receiverId: receiverId,

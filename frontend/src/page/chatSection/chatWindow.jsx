@@ -1,643 +1,899 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import {
-     FaPaperPlane,
-     FaPaperclip,
-     FaArrowLeft,
-     FaTimes,
-     FaLock,
-     FaComment,
-     FaSmile,
-     FaImage,
-     FaFile,
-     FaVideo,
-} from 'react-icons/fa';
+    Send,
+    Mic,
+    Paperclip,
+    ArrowLeft,
+    X,
+    Lock,
+    Smile,
+    Image as ImageIcon,
+    FileText,
+    ChevronDown,
+    Search,
+    Phone,
+    Video,
+    MoreVertical,
+    Reply
+} from 'lucide-react';
 import { useChatStore } from '../../store/chatStore';
+import { useGroupStore } from '../../store/groupStore';
 import useuserStore from '../../store/useruserStore';
 import useThemeStore from '../../store/themeStore';
 import formatTimestamp from '../../utils/formatTime';
-import { isToday, isYesterday, format } from "date-fns";
+import { isToday, isYesterday, format } from 'date-fns';
 import MessageBubble from './messageBubble';
-import Picker from 'emoji-picker-react';
+import GroupChatHeader from './GroupChatHeader';
+import GroupMessageBubble from './GroupMessageBubble';
+import GroupInfoPanel from './GroupInfoPanel';
+import MessageInfoModal from './MessageInfoModal';
+import { Virtuoso } from 'react-virtuoso';
+import { toast } from 'react-toastify';
+import { getSocket } from '../../services/chatService';
 
-const isValidate = (date) => {
-     return date instanceof Date && !isNaN(date);
-}
+const Picker = lazy(() => import('emoji-picker-react'));
 
-/* ── Animated Typing Indicator ──────────────────────────── */
-const TypingIndicator = ({ isDark }) => (
-     <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 8 }}
-          className="flex items-center gap-2 px-4 py-2"
-     >
-          <div className={`flex items-center gap-1.5 px-4 py-2.5 rounded-2xl rounded-tl-none shadow-sm ${isDark ? 'bg-slate-800/90' : 'bg-white'}`}>
-               {[0, 1, 2].map((i) => (
-                    <motion.span
-                         key={i}
-                         className={`block w-2.5 h-2.5 rounded-full ${isDark ? 'bg-teal-400' : 'bg-teal-500'}`}
-                         animate={{ y: [0, -5, 0] }}
-                         transition={{
-                              duration: 0.6,
-                              repeat: Infinity,
-                              delay: i * 0.15,
-                              ease: "easeInOut",
-                         }}
-                    />
-               ))}
-          </div>
-     </motion.div>
-);
+const ChatWindow = ({ selectedContact, setSelectedContact, isMobile, allContacts = [] }) => {
+    const [message, setMessage] = useState('');
+    const [replyTarget, setReplyTarget] = useState(null);
+    const [showEmoji, setShowEmoji] = useState(false);
+    const [showFileMenu, setShowFileMenu] = useState(false);
+    const [filePreview, setFilePreview] = useState(null);
+    const [attachment, setAttachment] = useState(null);
+    const [lightboxMedia, setLightboxMedia] = useState(null);
+    const [showScrollBottom, setShowScrollBottom] = useState(false);
+    const [newMessagesWhileScrolled, setNewMessagesWhileScrolled] = useState(0);
 
-const ChatWindow = ({ selectedContact, setSelectedContact, isMobile }) => {
-     const [message, setMessage] = useState("");
-     const [showEmoji, setShowEmoji] = useState(false);
-     const [showFileMenu, setShowFileMenu] = useState(false);
-     const [filePreview, setFilePreview] = useState(null);
-     const [attachment, setAttachment] = useState(null);
-     const { theme } = useThemeStore();
-     const isDark = theme === 'dark';
-     const { user: currentUser } = useuserStore();
+    // Group-specific UI state
+    const [showGroupInfoPanel, setShowGroupInfoPanel] = useState(false);
+    const [messageInfoTarget, setMessageInfoTarget] = useState(null);
+    const [mentionQuery, setMentionQuery] = useState(null); // string query or null
 
-     const typingTimeoutRef = useRef(null);
-     const messageEndref = useRef(null);
-     const fileInputRef = useRef(null);
-     const emojiPickerRef = useRef(null);
-     const fileMenuRef = useRef(null);
+    const { theme } = useThemeStore();
+    const isDark = theme === 'dark';
+    const { user: currentUser } = useuserStore();
 
-     const {
-          messages,
-          conversations,
-          currentConversation,
-          fetchMessages,
-          sendMessage,
-          deleteMessage,
-          addReaction,
-          startTyping,
-          endTyping,
-          isUserTyping,
-          isUserOnline,
-          getUserLastSeen,
-          markMessageAsRead,
-          cleanUp
-     } = useChatStore();
+    const typingTimeoutRef = useRef(null);
+    const virtuosoRef = useRef(null);
+    const fileInputRef = useRef(null);
+    const emojiPickerRef = useRef(null);
+    const fileMenuRef = useRef(null);
+    const textareaRef = useRef(null);
 
-     const isOnline = selectedContact ? isUserOnline(selectedContact._id) : false;
-     const lastSeen = selectedContact ? getUserLastSeen(selectedContact._id) : null;
-     const isTyping = selectedContact ? isUserTyping(selectedContact._id) : false;
+    // 1-to-1 Chat Store
+    const {
+        messages,
+        conversations,
+        currentConversation,
+        fetchMessages,
+        sendMessage,
+        deleteMessage,
+        addReaction,
+        startTyping,
+        endTyping,
+        isUserTyping,
+        isUserOnline,
+        getUserLastSeen,
+        markMessageAsRead
+    } = useChatStore();
 
-     useEffect(() => {
-          if (selectedContact?._id) {
-               const conversation = conversations?.data?.find((c) =>
-                    c?.participants?.some((p) => p === selectedContact._id || p?._id === selectedContact._id)
-               );
-               if (conversation?._id) {
-                    if (currentConversation?._id !== conversation._id) {
-                         fetchMessages(conversation);
+    // Group Chat Store
+    const {
+        activeGroup,
+        activeGroupDetails,
+        groupMessages,
+        setActiveGroup,
+        sendMessage: sendGroupMessage,
+        typingMembers
+    } = useGroupStore();
+
+    const isGroupMode = !!activeGroup;
+    const currentGroupId = activeGroup?._id || activeGroup?.id;
+    const currentGroup = activeGroupDetails || activeGroup;
+
+    const contactId = selectedContact?._id || selectedContact?.id;
+    const isOnline = contactId ? isUserOnline(contactId) : false;
+    const lastSeen = contactId ? getUserLastSeen(contactId) : null;
+    const isTyping = contactId ? isUserTyping(contactId) : false;
+
+    // Determine if current user can send in this group
+    const isGroupAdmin = useMemo(() => {
+        if (!isGroupMode || !currentGroup?.members) return false;
+        const currentUserId = (currentUser?._id || currentUser?.id)?.toString();
+        const m = currentGroup.members.find(
+            (mem) => (mem.userId?._id || mem.userId)?.toString() === currentUserId
+        );
+        return m?.role === 'admin' || m?.role === 'owner';
+    }, [isGroupMode, currentGroup, currentUser]);
+
+    const canSendInGroup = useMemo(() => {
+        if (!isGroupMode) return true;
+        const setting = currentGroup?.settings?.whoCanSend || 'all';
+        if (setting === 'admins') {
+            return isGroupAdmin;
+        }
+        return true;
+    }, [isGroupMode, currentGroup, isGroupAdmin]);
+
+    // Group typing text
+    const groupTypingText = useMemo(() => {
+        if (!isGroupMode || !currentGroupId) return null;
+        const typingObj = typingMembers[currentGroupId];
+        if (!typingObj) return null;
+        const currentUserId = (currentUser?._id || currentUser?.id)?.toString();
+        const names = Object.entries(typingObj)
+            .filter(([uid]) => uid !== currentUserId)
+            .map(([, name]) => name);
+
+        if (names.length === 0) return null;
+        if (names.length === 1) return `${names[0]} is typing...`;
+        if (names.length === 2) return `${names[0]} and ${names[1]} are typing...`;
+        return `${names[0]} and ${names.length - 1} others are typing...`;
+    }, [isGroupMode, currentGroupId, typingMembers, currentUser]);
+
+    // Group mention suggestions
+    const mentionSuggestions = useMemo(() => {
+        if (!isGroupMode || mentionQuery === null || !currentGroup?.members) return [];
+        const q = mentionQuery.toLowerCase();
+        return currentGroup.members
+            .map((m) => m.userId)
+            .filter(Boolean)
+            .filter((u) => {
+                const name = u.username || u.name || '';
+                return name.toLowerCase().includes(q);
+            })
+            .slice(0, 5);
+    }, [isGroupMode, mentionQuery, currentGroup]);
+
+    // Load draft on contact or group switch
+    useEffect(() => {
+        const key = isGroupMode ? `wa_draft_group_${currentGroupId}` : contactId ? `wa_draft_${contactId}` : null;
+        if (key) {
+            const savedDraft = localStorage.getItem(key) || '';
+            setMessage(savedDraft);
+            setReplyTarget(null);
+            setAttachment(null);
+            setFilePreview(null);
+        }
+    }, [contactId, currentGroupId, isGroupMode]);
+
+    // Save draft
+    useEffect(() => {
+        const key = isGroupMode ? `wa_draft_group_${currentGroupId}` : contactId ? `wa_draft_${contactId}` : null;
+        if (key) {
+            if (message) {
+                localStorage.setItem(key, message);
+            } else {
+                localStorage.removeItem(key);
+            }
+        }
+    }, [message, contactId, currentGroupId, isGroupMode]);
+
+    // 1-to-1 conversation messages
+    useEffect(() => {
+        if (!isGroupMode && contactId) {
+            const conversation = conversations?.data?.find((c) =>
+                c?.participants?.some((p) => (p._id || p)?.toString() === contactId?.toString())
+            );
+            if (conversation?._id) {
+                if (currentConversation?._id !== conversation._id) {
+                    fetchMessages(conversation);
+                }
+            } else {
+                useChatStore.setState({ messages: [], currentConversation: null });
+            }
+        }
+    }, [isGroupMode, contactId, conversations, currentConversation, fetchMessages]);
+
+    // Mark 1-to-1 messages as read
+    useEffect(() => {
+        if (!isGroupMode && messages.length > 0 && currentConversation?._id && contactId) {
+            markMessageAsRead();
+        }
+    }, [isGroupMode, messages.length, currentConversation, contactId, markMessageAsRead]);
+
+    // Group typing socket emission
+    const handleGroupTyping = (text) => {
+        if (!isGroupMode || !currentGroupId) return;
+        const socket = getSocket();
+        if (!socket) return;
+
+        socket.emit('group:typing_start', {
+            groupId: currentGroupId,
+            username: currentUser?.username || currentUser?.name || 'Someone'
+        });
+
+        if (typingTimeoutRef.current) {
+            clearTimeout(typingTimeoutRef.current);
+        }
+
+        typingTimeoutRef.current = setTimeout(() => {
+            socket.emit('group:typing_stop', {
+                groupId: currentGroupId,
+                username: currentUser?.username || currentUser?.name || 'Someone'
+            });
+        }, 2000);
+    };
+
+    // 1-to-1 typing socket emission
+    useEffect(() => {
+        if (!isGroupMode && message && contactId) {
+            startTyping(contactId);
+
+            if (typingTimeoutRef.current) {
+                clearTimeout(typingTimeoutRef.current);
+            }
+
+            typingTimeoutRef.current = setTimeout(() => {
+                endTyping(contactId);
+            }, 2000);
+
+            return () => {
+                if (typingTimeoutRef.current) {
+                    clearTimeout(typingTimeoutRef.current);
+                    endTyping(contactId);
+                }
+            };
+        }
+    }, [isGroupMode, message, contactId, startTyping, endTyping]);
+
+    // Click outside handler
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (fileMenuRef.current && !fileMenuRef.current.contains(e.target)) {
+                setShowFileMenu(false);
+            }
+            if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target)) {
+                setShowEmoji(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    // Text input handler with mention trigger
+    const handleTextChange = (e) => {
+        const val = e.target.value;
+        setMessage(val);
+
+        if (isGroupMode) {
+            handleGroupTyping(val);
+
+            // Check for @mention trigger
+            const cursor = e.target.selectionStart;
+            const textBeforeCursor = val.slice(0, cursor);
+            const lastAt = textBeforeCursor.lastIndexOf('@');
+            if (lastAt !== -1 && !textBeforeCursor.slice(lastAt).includes(' ')) {
+                setMentionQuery(textBeforeCursor.slice(lastAt + 1));
+            } else {
+                setMentionQuery(null);
+            }
+        }
+    };
+
+    const handleSelectMention = (userToMention) => {
+        const username = userToMention.username || userToMention.name || '';
+        const cursor = textareaRef.current?.selectionStart || message.length;
+        const textBeforeCursor = message.slice(0, cursor);
+        const lastAt = textBeforeCursor.lastIndexOf('@');
+        const textAfterCursor = message.slice(cursor);
+
+        const newText = `${message.slice(0, lastAt)}@${username} ${textAfterCursor}`;
+        setMessage(newText);
+        setMentionQuery(null);
+        setTimeout(() => {
+            textareaRef.current?.focus();
+        }, 50);
+    };
+
+    // File selection
+    const handleFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (file.size > 50 * 1024 * 1024) {
+            toast.error('File size exceeds 50 MB limit');
+            return;
+        }
+
+        setAttachment(file);
+        setFilePreview(URL.createObjectURL(file));
+        setShowFileMenu(false);
+    };
+
+    // Send Message (Direct or Group)
+    const handleSendMessage = async () => {
+        if (!message.trim() && !attachment) return;
+
+        const currentReply = replyTarget;
+        const currentAttachment = attachment;
+        const trimmed = message.trim();
+
+        // Clear input state immediately
+        setMessage('');
+        setAttachment(null);
+        setFilePreview(null);
+        setReplyTarget(null);
+        setMentionQuery(null);
+
+        try {
+            if (isGroupMode) {
+                // Group Message Sending
+                const formData = new FormData();
+                if (currentAttachment) {
+                    formData.append('media', currentAttachment);
+                }
+                if (trimmed) {
+                    formData.append('message', trimmed);
+                }
+                if (currentReply) {
+                    formData.append('replyTo', currentReply._id);
+                }
+
+                // Extract mentions
+                const mentionMatches = trimmed.match(/@(\w+)/g) || [];
+                if (mentionMatches.length > 0 && currentGroup?.members) {
+                    const cleanNames = mentionMatches.map((m) => m.slice(1).toLowerCase());
+                    const matchedUserIds = currentGroup.members
+                        .filter((mem) => {
+                            const uname = (mem.userId?.username || mem.userId?.name || '').toLowerCase();
+                            return cleanNames.includes(uname);
+                        })
+                        .map((mem) => mem.userId?._id || mem.userId);
+
+                    if (matchedUserIds.length > 0) {
+                        formData.append('mentions', JSON.stringify(matchedUserIds));
                     }
-               } else {
-                    useChatStore.setState({ messages: [], currentConversation: null });
-               }
-          } else {
-               useChatStore.setState({ messages: [], currentConversation: null });
-          }
-     }, [selectedContact, conversations, currentConversation, fetchMessages]);
+                }
 
-     // Scroll to bottom on message changes and typing status changes
-     useEffect(() => {
-          messageEndref.current?.scrollIntoView({ behavior: 'smooth' });
-     }, [messages, isTyping]);
+                await sendGroupMessage(currentGroupId, formData);
+            } else {
+                // 1-to-1 Message Sending
+                const formData = new FormData();
+                formData.append('senderId', currentUser?._id || currentUser?.id);
+                formData.append('receiverId', contactId);
 
-     // Mark messages as read when viewing the conversation
-     useEffect(() => {
-          if (messages.length > 0 && currentConversation?._id && selectedContact?._id) {
-               markMessageAsRead();
-          }
-     }, [messages, currentConversation, selectedContact, markMessageAsRead]);
+                let determinedContentType = 'text';
+                if (currentAttachment) {
+                    formData.append('media', currentAttachment);
+                    determinedContentType = currentAttachment.type.startsWith('video') ? 'video' : 'image';
+                }
+                formData.append('contentType', determinedContentType);
 
-     useEffect(() => {
-          if (message && selectedContact?._id) {
-               startTyping(selectedContact?._id);
+                const status = isOnline ? 'delivered' : 'sent';
+                formData.append('messageStatus', status);
 
-               if (typingTimeoutRef.current) {
-                    clearTimeout(typingTimeoutRef.current)
-               }
+                if (trimmed) {
+                    formData.append('content', trimmed);
+                }
 
-               typingTimeoutRef.current = setTimeout(() => {
-                    endTyping(selectedContact?._id);
-               }, 2000)
+                if (currentReply) {
+                    const replyPayload = {
+                        messageId: currentReply._id,
+                        statusId: currentReply.statusId,
+                        senderName:
+                            currentReply.senderName ||
+                            currentReply.senderId?.username ||
+                            currentReply.senderId?.name ||
+                            'User',
+                        text: currentReply.content || currentReply.message || currentReply.text || '',
+                        mediaUrl: currentReply.image || currentReply.video || currentReply.mediaUrl || null,
+                        contentType: currentReply.contentType || 'text'
+                    };
+                    formData.append('replyTo', JSON.stringify(replyPayload));
+                }
 
-               return () => {
-                    if (typingTimeoutRef.current) {
-                         clearTimeout(typingTimeoutRef.current);
-                         endTyping(selectedContact?._id);
-                    }
-               }
-          }
-     }, [message, selectedContact, startTyping, endTyping])
+                await sendMessage(formData);
+            }
 
-     // Close drop-downs on clicking outside
-     useEffect(() => {
-          const handleClickOutside = (e) => {
-               if (fileMenuRef.current && !fileMenuRef.current.contains(e.target)) {
-                    setShowFileMenu(false);
-               }
-               if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target)) {
-                    setShowEmoji(false);
-               }
-          };
-          document.addEventListener('mousedown', handleClickOutside);
-          return () => document.removeEventListener('mousedown', handleClickOutside);
-     }, []);
+            setTimeout(() => {
+                const total = isGroupMode ? groupMessages.length : messages.length;
+                virtuosoRef.current?.scrollToIndex({
+                    index: total,
+                    behavior: 'smooth'
+                });
+            }, 60);
+        } catch (error) {
+            console.error('Failed to send message:', error);
+            toast.error(error.response?.data?.message || 'Failed to deliver message');
+        }
+    };
 
-     const handleFileChange = (e) => {
-          const file = e.target.files?.[0];
-          if (file) {
-               setAttachment(file);
-               setShowFileMenu(false);
-               if (file.type.startsWith("image") || file.type.startsWith("video")) {
-                    setFilePreview(URL.createObjectURL(file));
-               }
-          }
-     }
+    // Formatted items with date separators
+    const formattedItems = useMemo(() => {
+        const activeList = isGroupMode ? groupMessages : messages;
+        const items = [];
+        let lastDate = null;
 
-     const handleSendMessage = async () => {
-          if (!selectedContact) return;
-          setFilePreview(null);
+        activeList.forEach((msg) => {
+            const createdAt = new Date(msg.createdAt || Date.now());
+            const dateStr = createdAt.toDateString();
 
-          try {
-               const formData = new FormData();
-               formData.append("senderId", currentUser?._id);
-               formData.append("receiverId", selectedContact?._id);
-               formData.append("message", message);
+            if (dateStr !== lastDate) {
+                lastDate = dateStr;
+                let label = format(createdAt, 'MMMM d, yyyy');
+                if (isToday(createdAt)) label = 'Today';
+                else if (isYesterday(createdAt)) label = 'Yesterday';
 
-               let determinedContentType = "text";
-               if (attachment) {
-                    if (attachment.type.startsWith("image")) {
-                         determinedContentType = "image";
-                    } else if (attachment.type.startsWith("video")) {
-                         determinedContentType = "video";
-                    } else {
-                         determinedContentType = "file";
-                    }
-               }
-               formData.append("contentType", determinedContentType);
+                items.push({
+                    type: 'date',
+                    id: `date-${dateStr}`,
+                    label
+                });
+            }
 
-               const status = isOnline ? "delivered" : "sent";
-               formData.append("messageStatus", status);
+            items.push({
+                type: 'message',
+                id: msg._id,
+                data: msg
+            });
+        });
 
-               if (message.trim()) {
-                    formData.append("content", message.trim());
-               }
-               if (attachment) {
-                    formData.append("media", attachment);
-               }
+        return items;
+    }, [isGroupMode, groupMessages, messages]);
 
-               if (!message.trim() && !attachment) return;
-
-               await sendMessage(formData);
-
-               setMessage("");
-               setAttachment(null);
-               setShowFileMenu(false);
-          }
-          catch (error) {
-               console.error("error sending message", error);
-          }
-     }
-
-     const renderDateSeparator = (date) => {
-          if (!isValidate(date)) return null;
-
-          let dateString;
-          if (isToday(date)) {
-               dateString = "Today"
-          } else if (isYesterday(date)) {
-               dateString = "Yesterday";
-          } else {
-               dateString = format(date, "EEEE, MMMM d");
-          }
-
-          return (
-               <div className="flex items-center justify-center my-6 px-8 select-none">
-                    <div className={`flex-1 h-[1px] ${isDark ? 'bg-slate-800/60' : 'bg-slate-200/60'}`} />
-                    <span className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide mx-3 shadow-sm
-                         ${isDark
-                              ? 'bg-slate-900 text-slate-400 border border-slate-800/80'
-                              : 'bg-white text-slate-500 border border-slate-100'
-                         }`}
-                    >
-                         {dateString}
-                    </span>
-                    <div className={`flex-1 h-[1px] ${isDark ? 'bg-slate-800/60' : 'bg-slate-200/60'}`} />
-               </div>
-          )
-     }
-
-     const groupedMessages = Array.isArray(messages) ? messages.reduce((acc, msg) => {
-          const date = new Date(msg.createdAt);
-          if (isValidate(date)) {
-               const dateString = format(date, "yyyy-MM-dd");
-               if (!acc[dateString]) {
-                    acc[dateString] = [];
-               }
-               acc[dateString].push(msg);
-          } else {
-               console.error("Invalid date for message:", msg);
-          }
-          return acc;
-     }, {}) : {};
-
-     const handleReaction = (messageId, emoji) => {
-          addReaction(messageId, emoji);
-     }
-
-     /* ── Empty State ────────────────────────────────── */
-     if (!selectedContact) {
-          return (
-               <div className={`flex items-center justify-center h-full w-full transition-all duration-300 relative overflow-hidden
-                    ${isDark
-                         ? 'bg-slate-950'
-                         : 'bg-gradient-to-br from-slate-50 via-teal-50/20 to-emerald-50/20'
-                    }`}
-               >
-                    {/* Decorative backdrop shapes */}
-                    <div className={`absolute top-1/4 left-1/4 w-80 h-80 rounded-full blur-3xl opacity-10 pointer-events-none ${isDark ? 'bg-teal-500' : 'bg-teal-300'}`} />
-                    <div className={`absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full blur-3xl opacity-10 pointer-events-none ${isDark ? 'bg-emerald-500' : 'bg-emerald-300'}`} />
-
-                    <motion.div
-                         initial={{ opacity: 0, scale: 0.95 }}
-                         animate={{ opacity: 1, scale: 1 }}
-                         transition={{ duration: 0.4 }}
-                         className={`max-w-md px-8 py-14 rounded-3xl text-center relative z-10 mx-4
-                              ${isDark
-                                   ? 'bg-slate-900/60 border border-slate-800/80 shadow-2xl backdrop-blur-xl'
-                                   : 'bg-white/70 border border-white/80 shadow-xl backdrop-blur-xl'
-                              }`}
-                    >
-                         <div className={`w-20 h-20 mx-auto mb-6 rounded-2xl flex items-center justify-center
-                              ${isDark ? 'bg-teal-500/10 text-teal-400' : 'bg-teal-50 text-teal-500'}`}
-                         >
-                              <FaComment size={32} />
-                         </div>
-                         <h2 className={`text-2xl font-bold tracking-tight mb-2.5 ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
-                              Your Premium Chat Space
-                         </h2>
-                         <p className={`text-sm mb-8 leading-relaxed max-w-xs mx-auto ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                              Select a contact to view your history and start real-time messaging.
-                         </p>
-                         <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold
-                              ${isDark
-                                   ? 'bg-slate-800/80 text-slate-400 border border-slate-700/50'
-                                   : 'bg-slate-50 text-slate-500 border border-slate-200'
-                              }`}
-                         >
-                              <FaLock className="text-emerald-500" size={10} />
-                              <span>End-to-End Encrypted</span>
-                         </div>
-                    </motion.div>
-               </div>
-          )
-     }
-
-     /* ── Active Chat Window ─────────────────────────── */
-     return (
-          <div className={`w-full h-full flex flex-col relative transition-all duration-300
-               ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-white text-slate-800'}`}
-          >
-               {/* Header */}
-               <div className={`px-5 py-3 md:px-6 border-b flex items-center justify-between z-10 backdrop-blur-md
-                    ${isDark
-                         ? 'bg-slate-900/90 border-slate-800/80'
-                         : 'bg-white/90 border-slate-100'
-                    }`}
-               >
-                    <div className="flex items-center gap-3.5 min-w-0">
-                         {isMobile && (
-                              <button
-                                   onClick={() => setSelectedContact(null)}
-                                   className={`p-2 rounded-xl transition-all
-                                        ${isDark ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-200' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'}`}
-                              >
-                                   <FaArrowLeft size={16} />
-                              </button>
-                         )}
-
-                         <div className="relative flex-shrink-0">
-                              <img
-                                   src={selectedContact.profilePicture}
-                                   alt={selectedContact.username}
-                                   className={`w-11 h-11 rounded-full object-cover ring-2 transition-all
-                                        ${isOnline
-                                             ? 'ring-emerald-400/80'
-                                             : isDark ? 'ring-slate-700' : 'ring-slate-200'
-                                        }`}
-                              />
-                              {isOnline && (
-                                   <span className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 shadow-sm bg-emerald-400
-                                        ${isDark ? 'border-slate-900' : 'border-white'}`}
-                                   />
-                              )}
-                         </div>
-
-                         <div className="min-w-0">
-                              <h3 className={`font-bold truncate text-[15px] leading-tight
-                                   ${isDark ? 'text-slate-100' : 'text-slate-800'}`}
-                              >
-                                   {selectedContact.username}
-                              </h3>
-                              <div className="text-[11px] truncate mt-0.5 font-medium">
-                                   <AnimatePresence mode="wait">
-                                        {isTyping ? (
-                                             <motion.span
-                                                  key="typing"
-                                                  initial={{ opacity: 0 }}
-                                                  animate={{ opacity: 1 }}
-                                                  exit={{ opacity: 0 }}
-                                                  className="text-emerald-500"
-                                             >
-                                                  typing...
-                                             </motion.span>
-                                        ) : isOnline ? (
-                                             <motion.span
-                                                  key="online"
-                                                  initial={{ opacity: 0 }}
-                                                  animate={{ opacity: 1 }}
-                                                  exit={{ opacity: 0 }}
-                                                  className="text-emerald-500"
-                                             >
-                                                  online
-                                             </motion.span>
-                                        ) : lastSeen ? (
-                                             <motion.span
-                                                  key="lastseen"
-                                                  initial={{ opacity: 0 }}
-                                                  animate={{ opacity: 1 }}
-                                                  exit={{ opacity: 0 }}
-                                                  className={isDark ? 'text-slate-500' : 'text-slate-400'}
-                                             >
-                                                  last seen {formatTimestamp(lastSeen)}
-                                             </motion.span>
-                                        ) : (
-                                             <motion.span
-                                                  key="offline"
-                                                  initial={{ opacity: 0 }}
-                                                  animate={{ opacity: 1 }}
-                                                  exit={{ opacity: 0 }}
-                                                  className={isDark ? 'text-slate-500' : 'text-slate-400'}
-                                             >
-                                                  offline
-                                             </motion.span>
-                                        )}
-                                   </AnimatePresence>
-                              </div>
-                         </div>
+    /* ── Empty State ────────────────────────────────── */
+    if (!selectedContact && !activeGroup) {
+        return (
+            <div
+                className={`flex-1 flex flex-col items-center justify-center h-full select-none border-b-[6px] border-[#00a884] ${
+                    isDark ? 'bg-[#222e35] text-[#8696a0]' : 'bg-[#f0f2f5] text-[#54656f]'
+                }`}
+            >
+                <div className="max-w-md px-6 text-center">
+                    <h2 className={`text-2xl font-light tracking-tight mb-3 ${isDark ? 'text-[#e9edef]' : 'text-[#41525d]'}`}>
+                        WhatsApp Web
+                    </h2>
+                    <p className="text-sm leading-relaxed mb-6 opacity-80">
+                        Send and receive messages with friends and groups without keeping your phone online.
+                    </p>
+                    <div className="inline-flex items-center gap-1.5 text-xs text-[#8696a0] opacity-80">
+                        <Lock size={12} />
+                        <span>End-to-end encrypted</span>
                     </div>
-               </div>
+                </div>
+            </div>
+        );
+    }
 
-               {/* Messages Area */}
-               <div
-                    className={`flex-1 overflow-y-auto px-4 md:px-6 py-4 scroll-smooth
-                         ${isDark ? 'bg-[#0b0e11]' : 'bg-[#f4f2ee]'}`}
-                    style={{
-                         backgroundImage: isDark
-                              ? 'radial-gradient(circle at 10% 10%, rgba(20, 184, 166, 0.025) 0%, transparent 40%), radial-gradient(circle at 90% 90%, rgba(16, 185, 129, 0.02) 0%, transparent 40%)'
-                              : 'radial-gradient(circle at 10% 10%, rgba(20, 184, 166, 0.04) 0%, transparent 45%), radial-gradient(circle at 90% 90%, rgba(16, 185, 129, 0.035) 0%, transparent 45%)',
-                    }}
-               >
-                    {Object.entries(groupedMessages).map(([date, msgs]) => (
-                         <React.Fragment key={date}>
-                              {renderDateSeparator(new Date(date))}
-                              {msgs.map((msg, idx) => (
-                                   <MessageBubble
-                                        key={msg._id || msg.tempId || msg.createdAt || `msg-${idx}`}
-                                        message={msg}
-                                        theme={theme}
-                                        currentUser={currentUser}
-                                        onReact={handleReaction}
-                                        deleteMessage={deleteMessage}
-                                   />
-                              ))}
-                         </React.Fragment>
-                    ))}
+    const hasContentToSend = message.trim().length > 0 || attachment !== null;
 
-                    <AnimatePresence>
-                         {isTyping && <TypingIndicator isDark={isDark} />}
-                    </AnimatePresence>
-
-                    <div ref={messageEndref} />
-
-                    {/* File Preview */}
-                    <AnimatePresence>
-                         {filePreview && (
-                              <motion.div
-                                   initial={{ opacity: 0, y: 15, scale: 0.96 }}
-                                   animate={{ opacity: 1, y: 0, scale: 1 }}
-                                   exit={{ opacity: 0, y: 15, scale: 0.96 }}
-                                   className="relative p-2 mt-4 max-w-[280px]"
-                              >
-                                   <div className={`rounded-2xl overflow-hidden shadow-lg border ${
-                                        isDark ? 'border-slate-800' : 'border-slate-200'
-                                   }`}>
-                                        {attachment?.type?.startsWith('video') ? (
-                                             <video
-                                                  src={filePreview}
-                                                  className="w-full object-cover max-h-48"
-                                                  controls={false}
-                                                  muted
-                                                  autoPlay
-                                                  loop
-                                             />
-                                        ) : (
-                                             <img
-                                                  src={filePreview}
-                                                  alt="file-preview"
-                                                  className="w-full object-cover"
-                                             />
-                                        )}
-                                   </div>
-                                   <button
-                                        onClick={() => {
-                                             setAttachment(null);
-                                             setFilePreview(null);
-                                        }}
-                                        className="absolute -top-1 -right-1 bg-black/60 hover:bg-black text-white rounded-full p-1.5 transition-colors shadow-md backdrop-blur-sm"
-                                   >
-                                        <FaTimes size={10} />
-                                   </button>
-                              </motion.div>
-                         )}
-                    </AnimatePresence>
-               </div>
-
-               {/* Input Footer */}
-               <div className={`px-4 py-3 border-t relative z-25
-                    ${isDark
-                         ? 'bg-slate-900/95 border-slate-800/80 backdrop-blur-md'
-                         : 'bg-white/95 border-slate-100 backdrop-blur-md'
+    return (
+        <div className="flex-1 flex flex-col h-full w-full relative overflow-hidden select-none">
+            {/* 1. HEADER */}
+            {isGroupMode ? (
+                <GroupChatHeader
+                    group={activeGroup}
+                    groupDetails={activeGroupDetails}
+                    onBack={() => setActiveGroup(null)}
+                    onOpenInfo={() => setShowGroupInfoPanel(true)}
+                    typingText={groupTypingText}
+                    isMobile={isMobile}
+                />
+            ) : (
+                <header
+                    className={`h-14 px-4 flex items-center justify-between border-b z-20 shrink-0 ${
+                        isDark ? 'bg-[#202c33] border-[#222d34] text-[#e9edef]' : 'bg-[#f0f2f5] border-[#e9edef] text-[#111b21]'
                     }`}
-               >
-                    {/* Emoji Picker */}
-                    <AnimatePresence>
-                         {showEmoji && (
-                              <motion.div
-                                   ref={emojiPickerRef}
-                                   initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                                   animate={{ opacity: 1, y: 0, scale: 1 }}
-                                   exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                                   className="absolute bottom-full left-4 mb-3 z-50 shadow-xl"
-                              >
-                                   <Picker
-                                        onEmojiClick={(emojiData) => {
-                                             setMessage((prev) => (prev || '') + emojiData.emoji);
-                                             setShowEmoji(false);
-                                        }}
-                                        theme={isDark ? "dark" : "light"}
-                                   />
-                              </motion.div>
-                         )}
-                    </AnimatePresence>
+                >
+                    <div className="flex items-center gap-3 min-w-0">
+                        {isMobile && (
+                            <button
+                                onClick={() => setSelectedContact(null)}
+                                aria-label="Back to chat list"
+                                className="p-1 -ml-1 text-[#8696a0] hover:text-inherit"
+                            >
+                                <ArrowLeft size={18} />
+                            </button>
+                        )}
 
-                    {/* Attachment description bar */}
-                    <AnimatePresence>
-                         {attachment && !filePreview && (
-                              <motion.div
-                                   initial={{ opacity: 0, height: 0 }}
-                                   animate={{ opacity: 1, height: 'auto' }}
-                                   exit={{ opacity: 0, height: 0 }}
-                                   className={`mb-2.5 px-3.5 py-2.5 rounded-2xl flex items-center gap-2.5 text-xs font-semibold
-                                        ${isDark ? 'bg-slate-800/80 text-slate-300' : 'bg-slate-50 text-slate-600'}`}
-                              >
-                                   {attachment.type?.startsWith('video') ? (
-                                        <FaVideo className="text-teal-500" />
-                                   ) : (
-                                        <FaFile className="text-teal-500" />
-                                   )}
-                                   <span className="truncate flex-1">{attachment.name}</span>
-                                   <button
-                                        onClick={() => setAttachment(null)}
-                                        className="text-slate-400 hover:text-red-500 transition-colors"
-                                   >
-                                        <FaTimes size={12} />
-                                   </button>
-                              </motion.div>
-                         )}
-                    </AnimatePresence>
+                        <div className="relative shrink-0">
+                            <img
+                                src={selectedContact?.profilePicture || 'https://via.placeholder.com/40'}
+                                alt={selectedContact?.username}
+                                className="w-10 h-10 rounded-full object-cover"
+                            />
+                            {isOnline && (
+                                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#25d366] rounded-full ring-2 ring-[#202c33]" />
+                            )}
+                        </div>
 
-                    <div className="flex items-center gap-3">
-                         {/* Attachment Actions */}
-                         <div className="relative" ref={fileMenuRef}>
-                              <button
-                                   onClick={() => setShowFileMenu(!showFileMenu)}
-                                   className={`p-2.5 rounded-xl transition-all duration-200
-                                        ${showFileMenu
-                                             ? isDark ? 'bg-teal-500/15 text-teal-400' : 'bg-teal-50 text-teal-600'
-                                             : isDark ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-200' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+                        <div className="min-w-0 flex-1">
+                            <h2 className="font-medium text-sm leading-tight truncate">
+                                {selectedContact?.username || selectedContact?.name}
+                            </h2>
+                            <p className="text-xs text-[#8696a0] truncate mt-0.5">
+                                {isTyping
+                                    ? 'typing...'
+                                    : isOnline
+                                    ? 'online'
+                                    : lastSeen
+                                    ? `last seen ${formatTimestamp(lastSeen)}`
+                                    : 'offline'}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-[#8696a0]">
+                        <button
+                            onClick={() => toast.info('Starting voice call...')}
+                            className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                        >
+                            <Phone size={18} />
+                        </button>
+                        <button
+                            onClick={() => toast.info('Starting video call...')}
+                            className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                        >
+                            <Video size={18} />
+                        </button>
+                        <button
+                            onClick={() => toast.info('Search in chat')}
+                            className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                        >
+                            <Search size={18} />
+                        </button>
+                    </div>
+                </header>
+            )}
+
+            {/* 2. CHAT MESSAGES BODY */}
+            <div
+                className={`flex-1 relative overflow-hidden transition-colors ${
+                    isDark ? 'bg-[#0b141a]' : 'bg-[#efeae2]'
+                }`}
+                style={{
+                    backgroundImage: isDark
+                        ? `radial-gradient(circle at 50% 50%, rgba(255,255,255,0.015) 0%, transparent 100%)`
+                        : `radial-gradient(circle at 50% 50%, rgba(0,0,0,0.02) 0%, transparent 100%)`
+                }}
+            >
+                <Virtuoso
+                    ref={virtuosoRef}
+                    data={formattedItems}
+                    initialTopMostItemIndex={formattedItems.length - 1}
+                    followOutput="auto"
+                    atBottomStateChange={(atBottom) => {
+                        setShowScrollBottom(!atBottom);
+                        if (atBottom) setNewMessagesWhileScrolled(0);
+                    }}
+                    itemContent={(index, item) => {
+                        if (item.type === 'date') {
+                            return (
+                                <div key={item.id} className="flex justify-center my-3 select-none">
+                                    <span
+                                        className={`px-3 py-1 rounded-lg text-xs font-medium uppercase tracking-wider shadow-2xs ${
+                                            isDark ? 'bg-[#182229] text-[#8696a0]' : 'bg-[#ffffff] text-[#54656f]'
                                         }`}
-                              >
-                                   <FaPaperclip size={16} />
-                              </button>
+                                    >
+                                        {item.label}
+                                    </span>
+                                </div>
+                            );
+                        }
 
-                              <AnimatePresence>
-                                   {showFileMenu && (
-                                        <motion.div
-                                             initial={{ opacity: 0, y: 8, scale: 0.95 }}
-                                             animate={{ opacity: 1, y: 0, scale: 1 }}
-                                             exit={{ opacity: 0, y: 8, scale: 0.95 }}
-                                             transition={{ duration: 0.12 }}
-                                             className={`absolute bottom-full left-0 mb-2 py-1.5 rounded-2xl shadow-xl min-w-[170px] z-50 border
-                                                  ${isDark
-                                                       ? 'bg-slate-800 border-slate-700/80 shadow-black/40'
-                                                       : 'bg-white border-slate-200 shadow-slate-200/50'
-                                                  }`}
-                                        >
-                                             <input
-                                                  type="file"
-                                                  ref={fileInputRef}
-                                                  onChange={(e) => {
-                                                       handleFileChange(e);
-                                                       setShowFileMenu(false);
-                                                  }}
-                                                  className="hidden"
-                                                  accept="image/*,video/*"
-                                             />
-                                             <button
-                                                  onClick={() => { fileInputRef.current?.click(); }}
-                                                  className={`flex items-center gap-3 px-4 py-2.5 w-full text-sm font-medium rounded-xl transition-colors
-                                                       ${isDark ? 'hover:bg-slate-700/70 text-slate-200' : 'hover:bg-slate-50 text-slate-700'}`}
-                                             >
-                                                  <FaImage className="text-violet-400" /> Image
-                                             </button>
-                                             <button
-                                                  onClick={() => { fileInputRef.current?.click(); }}
-                                                  className={`flex items-center gap-3 px-4 py-2.5 w-full text-sm font-medium rounded-xl transition-colors
-                                                       ${isDark ? 'hover:bg-slate-700/70 text-slate-200' : 'hover:bg-slate-50 text-slate-700'}`}
-                                             >
-                                                  <FaVideo className="text-rose-400" /> Video
-                                             </button>
-                                             <button
-                                                  onClick={() => { fileInputRef.current?.click(); }}
-                                                  className={`flex items-center gap-3 px-4 py-2.5 w-full text-sm font-medium rounded-xl transition-colors
-                                                       ${isDark ? 'hover:bg-slate-700/70 text-slate-200' : 'hover:bg-slate-50 text-slate-700'}`}
-                                             >
-                                                  <FaFile className="text-amber-400" /> Document
-                                             </button>
-                                        </motion.div>
-                                   )}
-                              </AnimatePresence>
-                         </div>
+                        if (isGroupMode) {
+                            return (
+                                <GroupMessageBubble
+                                    key={item.id}
+                                    message={item.data}
+                                    currentUserId={currentUser?._id || currentUser?.id}
+                                    onReply={(targetMsg) => setReplyTarget(targetMsg)}
+                                    onDelete={(msgId) => {
+                                        deleteMessage(msgId);
+                                    }}
+                                    onReaction={(msgId, emoji) => {
+                                        const socket = getSocket();
+                                        if (socket) {
+                                            socket.emit('add_reaction', {
+                                                messageId: msgId,
+                                                reactionuserId: currentUser?._id || currentUser?.id,
+                                                emoji
+                                            });
+                                        }
+                                    }}
+                                    onOpenInfo={(msg) => setMessageInfoTarget(msg)}
+                                    onOpenLightbox={(url) => setLightboxMedia({ url, type: 'image' })}
+                                />
+                            );
+                        }
 
-                         {/* Emoji action */}
-                         <button
-                              onClick={() => setShowEmoji(!showEmoji)}
-                              className={`p-2.5 rounded-xl transition-all duration-200
-                                   ${showEmoji
-                                        ? isDark ? 'bg-teal-500/15 text-teal-400' : 'bg-teal-50 text-teal-600'
-                                        : isDark ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-200' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
-                                   }`}
-                         >
-                              <FaSmile size={16} />
-                         </button>
+                        return (
+                            <MessageBubble
+                                key={item.id}
+                                message={item.data}
+                                theme={theme}
+                                onReact={addReaction}
+                                currentUser={currentUser}
+                                deleteMessage={deleteMessage}
+                                onStartReply={(targetMsg) => setReplyTarget(targetMsg)}
+                                onOpenMedia={(url, type) => setLightboxMedia({ url, type })}
+                            />
+                        );
+                    }}
+                />
 
-                         {/* Input Box */}
-                         <input
-                              type="text"
-                              value={message}
-                              onChange={(e) => setMessage(e.target.value)}
-                              onKeyDown={(e) => {
-                                   if (e.key === 'Enter' && !e.shiftKey) {
+                {/* Floating Scroll-to-Bottom Button */}
+                {showScrollBottom && (
+                    <button
+                        onClick={() => {
+                            virtuosoRef.current?.scrollToIndex({
+                                index: formattedItems.length - 1,
+                                behavior: 'smooth'
+                            });
+                        }}
+                        aria-label="Scroll to bottom"
+                        className={`absolute bottom-3 right-5 p-2 rounded-full shadow-lg border transition-all active:scale-95 z-20 ${
+                            isDark
+                                ? 'bg-[#202c33] border-[#2a3942] text-[#8696a0] hover:text-white'
+                                : 'bg-white border-[#e9edef] text-[#54656f] hover:text-[#111b21]'
+                        }`}
+                    >
+                        <ChevronDown size={18} />
+                        {newMessagesWhileScrolled > 0 && (
+                            <span className="absolute -top-1 -right-1 px-1 rounded-full bg-[#00a884] text-white text-[10px] font-bold min-w-[16px] text-center">
+                                {newMessagesWhileScrolled}
+                            </span>
+                        )}
+                    </button>
+                )}
+            </div>
+
+            {/* 3. INPUT COMPOSER */}
+            {isGroupMode && !canSendInGroup ? (
+                /* Disabled Input Banner for Group non-admins */
+                <footer
+                    className={`p-3 text-center text-xs flex items-center justify-center gap-2 border-t select-none ${
+                        isDark ? 'bg-[#202c33] border-[#222d34] text-[#8696a0]' : 'bg-[#f0f2f5] border-[#e9edef] text-[#54656f]'
+                    }`}
+                >
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Only admins can send messages to this group</span>
+                </footer>
+            ) : (
+                <footer
+                    className={`p-2 border-t shrink-0 relative z-20 ${
+                        isDark ? 'bg-[#202c33] border-[#222d34]' : 'bg-[#f0f2f5] border-[#e9edef]'
+                    }`}
+                >
+                    {/* Mentions Suggestion Popup */}
+                    {mentionSuggestions.length > 0 && (
+                        <div
+                            className={`absolute bottom-full left-12 mb-2 w-64 rounded-xl shadow-2xl border overflow-hidden z-50 ${
+                                isDark ? 'bg-[#202c33] border-[#222d34] text-[#e9edef]' : 'bg-white border-[#e9edef] text-[#111b21]'
+                            }`}
+                        >
+                            <div className="px-3 py-1.5 text-[10px] uppercase font-semibold text-[#8696a0] border-b border-[#222d34]/20">
+                                Mention Group Member
+                            </div>
+                            <div className="max-h-48 overflow-y-auto">
+                                {mentionSuggestions.map((mUser) => (
+                                    <div
+                                        key={mUser._id}
+                                        onClick={() => handleSelectMention(mUser)}
+                                        className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer text-xs ${
+                                            isDark ? 'hover:bg-[#111b21]' : 'hover:bg-[#f0f2f5]'
+                                        }`}
+                                    >
+                                        <div className="w-6 h-6 rounded-full bg-[#00a884]/20 text-[#00a884] flex items-center justify-center font-bold text-[10px]">
+                                            {(mUser.name || mUser.username || 'U').charAt(0).toUpperCase()}
+                                        </div>
+                                        <span className="font-medium truncate">
+                                            {mUser.username || mUser.name}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Reply Banner */}
+                    {replyTarget && (
+                        <div
+                            className={`mb-2 px-3 py-2 rounded-lg flex items-center justify-between border-l-4 border-[#00a884] text-xs ${
+                                isDark ? 'bg-[#111b21] text-[#e9edef]' : 'bg-white text-[#111b21]'
+                            }`}
+                        >
+                            <div className="flex items-center gap-2 truncate">
+                                <Reply size={13} className="text-[#00a884] shrink-0" />
+                                <div className="truncate">
+                                    <span className="font-semibold text-[#00a884] block truncate">
+                                        Replying to{' '}
+                                        {replyTarget.senderName ||
+                                            replyTarget.senderId?.username ||
+                                            replyTarget.senderId?.name ||
+                                            'Member'}
+                                    </span>
+                                    <span className="opacity-80 truncate block text-[11px]">
+                                        {replyTarget.content || replyTarget.message || replyTarget.text || 'Media attachment'}
+                                    </span>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setReplyTarget(null)}
+                                aria-label="Cancel reply"
+                                className="p-1 text-[#8696a0] hover:text-inherit"
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
+                    )}
+
+                    {/* File Attachment Preview */}
+                    {filePreview && (
+                        <div
+                            className={`mb-2 p-2 rounded-lg flex items-center justify-between border ${
+                                isDark ? 'bg-[#111b21] border-[#222d34]' : 'bg-white border-[#e9edef]'
+                            }`}
+                        >
+                            <div className="flex items-center gap-2">
+                                {attachment?.type?.startsWith('video') ? (
+                                    <video src={filePreview} className="w-10 h-10 rounded object-cover" />
+                                ) : (
+                                    <img src={filePreview} alt="Preview" className="w-10 h-10 rounded object-cover" />
+                                )}
+                                <span className="text-xs truncate max-w-xs">{attachment?.name}</span>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setAttachment(null);
+                                    setFilePreview(null);
+                                }}
+                                className="p-1 text-[#8696a0] hover:text-rose-500"
+                            >
+                                <X size={15} />
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Input Bar Row */}
+                    <div className="flex items-end gap-1.5">
+                        {/* Emoji Button */}
+                        <button
+                            onClick={() => setShowEmoji((prev) => !prev)}
+                            aria-label="Emoji picker"
+                            className="p-2 text-[#8696a0] hover:text-inherit rounded-full transition-colors"
+                        >
+                            <Smile size={20} />
+                        </button>
+
+                        {/* Paperclip Button */}
+                        <div className="relative" ref={fileMenuRef}>
+                            <button
+                                onClick={() => setShowFileMenu((prev) => !prev)}
+                                aria-label="Attach file"
+                                className="p-2 text-[#8696a0] hover:text-inherit rounded-full transition-colors"
+                            >
+                                <Paperclip size={20} />
+                            </button>
+
+                            {showFileMenu && (
+                                <div
+                                    className={`absolute bottom-full left-0 mb-2 py-1 rounded-lg shadow-xl border min-w-[140px] z-50 text-xs ${
+                                        isDark ? 'bg-[#233138] border-[#2a3942] text-[#d1d7db]' : 'bg-white border-[#e9edef] text-[#111b21]'
+                                    }`}
+                                >
+                                    <input
+                                        type="file"
+                                        ref={fileInputRef}
+                                        onChange={handleFileChange}
+                                        className="hidden"
+                                        accept="image/*,video/*"
+                                    />
+                                    <button
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className={`w-full px-3 py-2 flex items-center gap-2.5 transition-colors ${
+                                            isDark ? 'hover:bg-[#182229]' : 'hover:bg-[#f5f6f6]'
+                                        }`}
+                                    >
+                                        <ImageIcon size={15} className="text-[#00a884]" />
+                                        <span>Photos & Videos</span>
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Auto-growing Textarea */}
+                        <div className="flex-1 bg-transparent">
+                            <textarea
+                                ref={textareaRef}
+                                rows={1}
+                                value={message}
+                                onChange={handleTextChange}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
                                         e.preventDefault();
                                         handleSendMessage();
-                                   }
-                              }}
-                              placeholder="Type a message..."
-                              className={`flex-1 px-5 py-3 rounded-2xl border text-sm focus:outline-none transition-all duration-250
-                                   ${isDark
-                                        ? 'bg-slate-800/70 border-slate-700/60 focus:border-teal-500/50 focus:bg-slate-800 text-slate-100 placeholder:text-slate-500'
-                                        : 'bg-slate-50 border-slate-200/80 focus:border-teal-400/50 focus:bg-white text-slate-800 placeholder:text-slate-400'
-                                   }`}
-                         />
+                                    }
+                                }}
+                                placeholder={isGroupMode ? "Type a message (or @ to mention)" : "Type a message"}
+                                className={`w-full px-3.5 py-2.5 rounded-lg text-sm outline-none resize-none max-h-32 transition-colors ${
+                                    isDark
+                                        ? 'bg-[#2a3942] text-[#e9edef] placeholder-[#8696a0]'
+                                        : 'bg-white text-[#111b21] placeholder-[#8696a0]'
+                                }`}
+                            />
+                        </div>
 
-                         {/* Send Action */}
-                         <motion.button
-                              whileTap={{ scale: 0.95 }}
-                              onClick={handleSendMessage}
-                              disabled={!message.trim() && !attachment}
-                              className={`p-3 rounded-2xl transition-all duration-250
-                                   ${(!message.trim() && !attachment)
-                                        ? isDark
-                                             ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
-                                             : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                                        : 'bg-gradient-to-r from-teal-500 to-emerald-500 text-white shadow-md shadow-teal-500/20 hover:brightness-105'
-                                   }`}
-                         >
-                              <FaPaperPlane size={14} />
-                         </motion.button>
+                        {/* Dynamic Mic <-> Send Morphing Button */}
+                        {hasContentToSend ? (
+                            <button
+                                onClick={handleSendMessage}
+                                aria-label="Send message"
+                                title="Send"
+                                className="p-2.5 rounded-full text-[#8696a0] hover:text-[#00a884] transition-colors shrink-0"
+                            >
+                                <Send size={19} />
+                            </button>
+                        ) : (
+                            <button
+                                onClick={() => toast.info('Hold to record voice message (available soon)')}
+                                aria-label="Voice message"
+                                title="Voice message"
+                                className="p-2.5 rounded-full text-[#8696a0] hover:text-[#00a884] transition-colors shrink-0"
+                            >
+                                <Mic size={19} />
+                            </button>
+                        )}
                     </div>
-               </div>
-          </div>
-     );
+
+                    {/* Lazy Emoji Picker Popover */}
+                    {showEmoji && (
+                        <div ref={emojiPickerRef} className="absolute bottom-14 left-2 z-50 shadow-2xl rounded-lg overflow-hidden">
+                            <Suspense fallback={<div className="p-4 bg-[#202c33] text-xs text-[#8696a0]">Loading emojis...</div>}>
+                                <Picker
+                                    onEmojiClick={(emojiData) => setMessage((prev) => prev + emojiData.emoji)}
+                                    theme={isDark ? 'dark' : 'light'}
+                                />
+                            </Suspense>
+                        </div>
+                    )}
+                </footer>
+            )}
+
+            {/* Slide-over Group Info Drawer */}
+            {isGroupMode && (
+                <GroupInfoPanel
+                    isOpen={showGroupInfoPanel}
+                    onClose={() => setShowGroupInfoPanel(false)}
+                    group={activeGroup}
+                    groupDetails={activeGroupDetails}
+                    currentUserId={currentUser?._id || currentUser?.id}
+                    allContacts={allContacts}
+                />
+            )}
+
+            {/* Message Info Modal */}
+            {messageInfoTarget && (
+                <MessageInfoModal
+                    isOpen={!!messageInfoTarget}
+                    onClose={() => setMessageInfoTarget(null)}
+                    message={messageInfoTarget}
+                />
+            )}
+
+            {/* Fullscreen Lightbox Modal */}
+            {lightboxMedia && (
+                <div
+                    onClick={() => setLightboxMedia(null)}
+                    className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4 animate-fade-in"
+                >
+                    <button
+                        onClick={() => setLightboxMedia(null)}
+                        className="absolute top-4 right-4 p-2 rounded-full bg-slate-800 text-white hover:bg-slate-700 transition"
+                    >
+                        <X size={18} />
+                    </button>
+
+                    {lightboxMedia.type === 'video' ? (
+                        <video src={lightboxMedia.url} controls autoPlay className="max-h-[90vh] max-w-[90vw] rounded-lg" />
+                    ) : (
+                        <img src={lightboxMedia.url} alt="Full view" className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg" />
+                    )}
+                </div>
+            )}
+        </div>
+    );
 };
 
 export default ChatWindow;

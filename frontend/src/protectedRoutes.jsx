@@ -4,30 +4,42 @@ import { checkUserAuth } from './services/user.services';
 import useUserStore from "./store/useruserStore";
 import Loader from "./utils/Loader";
 
-export const ProtectedRoute = ({ children }) => {
+export const ProtectedRoute = () => {
     const location = useLocation();
     const [isChecking, setIsChecking] = useState(true);
-
     const { isAuthenticated, setUser, clearuser } = useUserStore();
 
     useEffect(() => {
-        const checkAuth = async () => {
+        let isMounted = true;
+
+        const verifySession = async () => {
             try {
                 const authStatus = await checkUserAuth();
-                if (authStatus.isAuthenticated) {
+                if (!isMounted) return;
+
+                if (authStatus.isAuthenticated && authStatus.user) {
                     setUser(authStatus.user);
                 } else {
                     clearuser();
                 }
             } catch (error) {
-                console.error("Error checking authentication:", error);
-                clearuser();
+                if (isMounted) clearuser();
             } finally {
-                setIsChecking(false);
+                if (isMounted) setIsChecking(false);
             }
         };
 
-        checkAuth();
+        verifySession();
+
+        const handleLogoutEvent = () => {
+            clearuser();
+        };
+
+        window.addEventListener('auth:logout', handleLogoutEvent);
+        return () => {
+            isMounted = false;
+            window.removeEventListener('auth:logout', handleLogoutEvent);
+        };
     }, [setUser, clearuser]);
 
     if (isChecking) {
