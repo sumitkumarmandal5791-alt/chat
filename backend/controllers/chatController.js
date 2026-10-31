@@ -1,15 +1,29 @@
 const Conversation = require('../models/conversation');
 const Message = require('../models/Message');
+const mongoose = require('mongoose');
 const { uploadFileTocloudinary } = require('../src/cloudaniry');
 
 //create the chat bt two users
 exports.sendMessage = async (req, res) => {
     try {
-        const { message, senderId, receiverId, content, messageStatus } = req.body; 
+        const { message, receiverId, content, messageStatus } = req.body;
+        const senderId = req.userId || req.user?._id;
         const file = req.file;
 
+        if (!senderId || !mongoose.isValidObjectId(senderId)) {
+            return res.status(401).json({ message: "Authenticated sender is invalid" });
+        }
+        if (!receiverId || !mongoose.isValidObjectId(receiverId)) {
+            return res.status(400).json({ message: "A valid receiver is required" });
+        }
+        if (String(senderId) === String(receiverId)) {
+            return res.status(400).json({ message: "You cannot send a message to yourself" });
+        }
+
         // Use 'message' if 'content' is not provided (handles user payload)
-        const finalContent = content || message;
+        const finalContent = typeof (content || message) === "string"
+            ? (content || message).trim()
+            : "";
 
         const participants = [senderId, receiverId].sort();
 
@@ -20,13 +34,20 @@ exports.sendMessage = async (req, res) => {
         }
         let image = null;
         let video = null;
+        let contentType = null;
 
         //handleFileUpload
 
         if(file){
-             const uploadResult = await uploadFileTocloudinary(file);
+             let uploadResult;
+             try {
+                 uploadResult = await uploadFileTocloudinary(file);
+             } catch (uploadError) {
+                 console.error("Message media upload failed:", uploadError.message);
+                 return res.status(502).json({ message: "Message media upload failed" });
+             }
              if(!uploadResult || !uploadResult.secure_url){
-                return res.status(500).json({ message: "file upload failed" })
+                return res.status(502).json({ message: "Message media upload failed" })
              };
 
                 if(file.mimetype.startsWith("video")){

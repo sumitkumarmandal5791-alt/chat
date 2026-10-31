@@ -278,9 +278,7 @@ export const useChatStore = create((set, get) => ({
     }));
 
     try {
-      const { data } = await axiosInstance.post("/chat/send-message", messageData, {
-        headers: { "Content-Type": "multipart/form-data" }
-      });
+      const { data } = await axiosInstance.post("/chat/send-message", messageData);
       const responseMsg = data.data || data;
 
       set((state) => ({
