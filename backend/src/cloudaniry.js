@@ -94,7 +94,18 @@ const destroyResource = async (publicId, resourceType = "image") => {
 };
 
 const storage = multer.memoryStorage();
-const multerMiddleWare = multer({ storage }).single("media");
+const multerMiddleWare = multer({
+    storage,
+    limits: {
+        fileSize: 10 * 1024 * 1024
+    },
+    fileFilter: (req, file, callback) => {
+        if (file.mimetype.startsWith("image/") || file.mimetype.startsWith("video/")) {
+            return callback(null, true);
+        }
+        return callback(new Error("Only image and video files are supported"));
+    }
+}).single("media");
 
 module.exports = {
     cloudinary,

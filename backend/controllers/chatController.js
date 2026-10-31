@@ -27,7 +27,9 @@ exports.sendMessage = async (req, res) => {
 
         const participants = [senderId, receiverId].sort();
 
-        let conversation = await Conversation.findOne({ participants });
+        let conversation = await Conversation.findOne({
+            participants: { $all: participants, $size: participants.length }
+        });
         if (!conversation) {
             conversation = new Conversation({ participants});
            await conversation.save();
@@ -84,7 +86,7 @@ exports.sendMessage = async (req, res) => {
              contentType,
              image,
              video,
-             messageStatus: messageStatus || "sent"
+             messageStatus: ["sent", "delivered", "read"].includes(messageStatus) ? messageStatus : "sent"
         })
         await newMessage.save();
         if (newMessage.message) {
@@ -114,8 +116,23 @@ exports.sendMessage = async (req, res) => {
         return res.status(200).json({ message: "Message sent successfully", data: populatedMessage })
     }
     catch(error) {
-        console.error("Error in sendMessage:", error);
-        return res.status(500).json({ message: "internal server error in send message", error: error.message })
+        console.error("Error in sendMessage:", {
+            name: error.name,
+            message: error.message,
+            code: error.code,
+            stack: error.stack,
+            userId: req.userId || req.user?._id,
+            receiverId: req.body?.receiverId,
+            hasFile: Boolean(req.file)
+        });
+
+        if (error.name === "ValidationError") {
+            return res.status(400).json({ message: "Invalid message data", details: error.message });
+        }
+        if (error.name === "MongooseError" || error.name === "MongoServerError") {
+            return res.status(503).json({ message: "Database unavailable while sending message" });
+        }
+        return res.status(500).json({ message: "Unable to send message", details: error.message });
     }
 }
 
