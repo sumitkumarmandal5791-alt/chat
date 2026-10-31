@@ -395,7 +395,12 @@ const ChatWindow = ({ selectedContact, setSelectedContact, isMobile, allContacts
             }, 60);
         } catch (error) {
             console.error('Failed to send message:', error);
-            toast.error(error.response?.data?.message || 'Failed to deliver message');
+            const apiError = error.response?.data;
+            toast.error(
+                apiError?.requestId
+                    ? `${apiError.message} (Request: ${apiError.requestId})`
+                    : apiError?.message || 'Failed to deliver message'
+            );
         }
     };
 

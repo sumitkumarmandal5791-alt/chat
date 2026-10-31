@@ -5,6 +5,9 @@ const { uploadFileTocloudinary } = require('../src/cloudaniry');
 
 //create the chat bt two users
 exports.sendMessage = async (req, res) => {
+    const requestId = req.headers["x-request-id"] || new mongoose.Types.ObjectId().toString();
+    let stage = "request validation";
+
     try {
         const { message, receiverId, content, messageStatus } = req.body;
         const senderId = req.userId || req.user?._id;
@@ -27,12 +30,17 @@ exports.sendMessage = async (req, res) => {
 
         const participants = [senderId, receiverId].sort();
 
+        stage = "loading conversation";
         let conversation = await Conversation.findOne({
             participants: { $all: participants, $size: participants.length }
         });
         if (!conversation) {
+            stage = "creating conversation";
             conversation = new Conversation({ participants});
            await conversation.save();
+        }
+        if (!Array.isArray(conversation.messages)) {
+            conversation.messages = [];
         }
         let image = null;
         let video = null;
@@ -41,6 +49,7 @@ exports.sendMessage = async (req, res) => {
         //handleFileUpload
 
         if(file){
+             stage = "uploading media";
              let uploadResult;
              try {
                  uploadResult = await uploadFileTocloudinary(file);
@@ -69,6 +78,7 @@ exports.sendMessage = async (req, res) => {
         }
 
         let replyTo = null;
+        stage = "creating message";
         if (req.body.replyTo) {
             try {
                 replyTo = typeof req.body.replyTo === 'string' ? JSON.parse(req.body.replyTo) : req.body.replyTo;
@@ -88,18 +98,19 @@ exports.sendMessage = async (req, res) => {
              video,
              messageStatus: ["sent", "delivered", "read"].includes(messageStatus) ? messageStatus : "sent"
         })
+        stage = "saving message";
         await newMessage.save();
         if (newMessage.message) {
              conversation.lastMessage = newMessage._id;
         }
-
-
+        stage = "saving conversation";
         conversation.unreadCount = (conversation.unreadCount || 0) + 1;
         conversation.lastMessage = newMessage._id;
         conversation.messages.push(newMessage._id);
         await conversation.save();
            
 
+        stage = "populating message";
         const populatedMessage = await Message.findById(newMessage._id)
         .populate('senderId', 'username profilePicture')
         .populate('receiverId', 'username profilePicture');
@@ -121,18 +132,20 @@ exports.sendMessage = async (req, res) => {
             message: error.message,
             code: error.code,
             stack: error.stack,
+            requestId,
+            stage,
             userId: req.userId || req.user?._id,
             receiverId: req.body?.receiverId,
             hasFile: Boolean(req.file)
         });
 
         if (error.name === "ValidationError") {
-            return res.status(400).json({ message: "Invalid message data", details: error.message });
+            return res.status(400).json({ message: "Invalid message data", details: error.message, requestId });
         }
         if (error.name === "MongooseError" || error.name === "MongoServerError") {
-            return res.status(503).json({ message: "Database unavailable while sending message" });
+            return res.status(503).json({ message: "Database unavailable while sending message", requestId });
         }
-        return res.status(500).json({ message: "Unable to send message", details: error.message });
+        return res.status(500).json({ message: "Unable to send message", details: error.message, stage, requestId });
     }
 }
 
