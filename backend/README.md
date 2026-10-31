@@ -65,6 +65,10 @@ backend/
     DB_CONNECT_STRING=mongodb://localhost:27017/alyx_chat
     JWT_SECRET_KEY=your_jwt_secret_key_here
     FRONTEND_URL=http://localhost:5173
+    FRONTEND_URLS=http://localhost:5173
+    # For separate deployed frontend/API domains use COOKIE_SAME_SITE=none and COOKIE_SECURE=true
+    COOKIE_SAME_SITE=lax
+    COOKIE_SECURE=false
 
     # Email SMTP configuration
     SMTP_HOST=smtp.gmail.com
@@ -99,3 +103,6 @@ The backend readiness endpoint is available at `http://localhost:1200/api/health
 For Gmail, enable 2-Step Verification and create an App Password under Google
 Account security. Use that 16-character value as `SMTP_PASS`; do not use your
 normal Gmail password.
+
+For Render, set `COOKIE_SAME_SITE=none`, `COOKIE_SECURE=true`, and
+`FRONTEND_URL` to the exact deployed frontend URL.

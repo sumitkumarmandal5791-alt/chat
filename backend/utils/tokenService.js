@@ -8,6 +8,10 @@ const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'wa_jwt_refresh_secret_
 
 const ACCESS_EXPIRES_IN = '15m'; // 15 minutes
 const REFRESH_EXPIRES_IN = '7d';  // 7 days
+const cookieSameSite = (process.env.COOKIE_SAME_SITE || (process.env.NODE_ENV === 'production' ? 'none' : 'lax')).toLowerCase();
+const cookieSecure = process.env.COOKIE_SECURE
+    ? process.env.COOKIE_SECURE === 'true'
+    : process.env.NODE_ENV === 'production';
 
 /**
  * Generate Access Token (15 mins)
@@ -59,11 +63,10 @@ const verifyRefreshToken = (token) => {
  * Set HTTP-Only Cookie for Refresh Token
  */
 const setRefreshTokenCookie = (res, refreshToken) => {
-    const isProduction = process.env.NODE_ENV === 'production';
     res.cookie('refreshToken', refreshToken, {
         httpOnly: true,
-        secure: isProduction,
-        sameSite: isProduction ? 'strict' : 'lax',
+        secure: cookieSecure,
+        sameSite: cookieSameSite,
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in ms
         path: '/'
     });
@@ -73,11 +76,10 @@ const setRefreshTokenCookie = (res, refreshToken) => {
  * Clear Auth Cookies
  */
 const clearAuthCookies = (res) => {
-    const isProduction = process.env.NODE_ENV === 'production';
     const cookieOptions = {
         httpOnly: true,
-        secure: isProduction,
-        sameSite: isProduction ? 'strict' : 'lax',
+        secure: cookieSecure,
+        sameSite: cookieSameSite,
         path: '/'
     };
     res.clearCookie('refreshToken', cookieOptions);
@@ -166,4 +168,3 @@ module.exports = {
     registerSession,
     rotateRefreshToken
 };
-

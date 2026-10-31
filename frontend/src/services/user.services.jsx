@@ -1,4 +1,4 @@
-import axiosInstance, { setAccessToken } from "./url.service";
+import axiosInstance, { refreshAccessToken, setAccessToken } from "./url.service";
 
 // 1. Send OTP
 export const sendOtp = async (payload) => {
@@ -49,11 +49,7 @@ export const updateProfile = async (updatedUserData) => {
 // 5. Silent Refresh
 export const refreshToken = async () => {
     try {
-        const response = await axiosInstance.post("/auth/refresh");
-        if (response.data?.accessToken) {
-            setAccessToken(response.data.accessToken);
-        }
-        return response.data;
+        return await refreshAccessToken();
     } catch (error) {
         setAccessToken(null);
         throw error.response?.data?.message || "Failed to refresh session.";
@@ -63,22 +59,12 @@ export const refreshToken = async () => {
 // 6. Check Auth Status / Get Current User
 export const checkUserAuth = async () => {
     try {
-        // Try refreshing session first to ensure valid accessToken
-        const refreshRes = await axiosInstance.post("/auth/refresh");
-        if (refreshRes.data?.accessToken && refreshRes.data?.user) {
-            setAccessToken(refreshRes.data.accessToken);
-            return { isAuthenticated: true, user: refreshRes.data.user };
+        const refreshRes = await refreshAccessToken();
+        if (refreshRes?.accessToken && refreshRes?.user) {
+            return { isAuthenticated: true, user: refreshRes.user };
         }
-    } catch (e) {
-        // Fallback to /auth/me
-        try {
-            const response = await axiosInstance.get("/auth/me");
-            if (response.data?.user) {
-                return { isAuthenticated: true, user: response.data.user };
-            }
-        } catch {
-            return { isAuthenticated: false, user: null };
-        }
+    } catch {
+        setAccessToken(null);
     }
     return { isAuthenticated: false, user: null };
 };

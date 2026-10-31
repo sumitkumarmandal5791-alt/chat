@@ -312,7 +312,7 @@ exports.getFeed = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error fetching status feed:', error.message);
+        console.error('Error fetching status feed:', error);
         return res.status(500).json({ success: false, message: 'Failed to fetch status feed' });
     }
 };

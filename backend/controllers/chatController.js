@@ -123,6 +123,10 @@ exports.sendMessage = async (req, res) => {
 exports.getConversation = async (req, res) => {
     const userId1 = req.params.userId;
 
+    if (!mongoose.isValidObjectId(userId1)) {
+        return res.status(400).json({ message: "Invalid user ID" });
+    }
+
     try{
         const conversations = await Conversation.find({ participants: userId1 })
         .populate("participants", "username profilePicture isOnline lastSeen")
@@ -132,7 +136,8 @@ exports.getConversation = async (req, res) => {
         return res.status(200).json({ message: "Conversations retrieved successfully", data: conversations })
     }
     catch(error){
-        return res.status(500).json({ message: "internal server error in get conversation"+error.message })
+        console.error("Error in getConversation:", error);
+        return res.status(500).json({ message: "Unable to retrieve conversation" })
     }
 }
 

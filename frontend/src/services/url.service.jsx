@@ -1,44 +1,63 @@
 import axios from "axios";
 
-const apiUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:1200'}/api`;
+const apiUrl = `${import.meta.env.VITE_API_URL || "http://localhost:1200"}/api`;
 
 const axiosInstance = axios.create({
     baseURL: apiUrl,
-    withCredentials: true, // Send httpOnly cookies (refreshToken) with every request
+    withCredentials: true,
 });
 
-// In-memory access token storage
 let currentAccessToken = null;
+let refreshPromise = null;
 
 export const setAccessToken = (token) => {
     currentAccessToken = token;
 };
 
-export const getAccessToken = () => {
-    return currentAccessToken;
+export const getAccessToken = () => currentAccessToken;
+
+export const refreshAccessToken = async () => {
+    if (!refreshPromise) {
+        refreshPromise = axios
+            .post(`${apiUrl}/auth/refresh`, {}, { withCredentials: true })
+            .then((response) => {
+                const newAccessToken = response.data?.accessToken;
+                if (!newAccessToken) {
+                    throw new Error("Refresh response did not contain an access token");
+                }
+                setAccessToken(newAccessToken);
+                return response.data;
+            })
+            .finally(() => {
+                refreshPromise = null;
+            });
+    }
+
+    return refreshPromise;
 };
 
-// Request Interceptor: Attach Access Token
 axiosInstance.interceptors.request.use(
     (config) => {
-        if (currentAccessToken && !config.headers.Authorization) {
-            config.headers.Authorization = `Bearer ${currentAccessToken}`;
+        if (currentAccessToken) {
+            config.headers = config.headers || {};
+            if (!config.headers.Authorization) {
+                config.headers.Authorization = `Bearer ${currentAccessToken}`;
+            }
         }
         return config;
     },
     (error) => Promise.reject(error)
 );
 
-// Response Interceptor: Auto Refresh Token on 401
 let isRefreshing = false;
 let failedQueue = [];
 
 const processQueue = (error, token = null) => {
-    failedQueue.forEach((prom) => {
+    failedQueue.forEach((promise) => {
         if (error) {
-            prom.reject(error);
+            promise.reject(error);
         } else {
-            prom.resolve(token);
+            promise.resolve(token);
         }
     });
     failedQueue = [];
@@ -48,56 +67,47 @@ axiosInstance.interceptors.response.use(
     (response) => response,
     async (error) => {
         const originalRequest = error.config;
+        const requestUrl = originalRequest?.url || "";
+        const isAuthRequest = ["/auth/refresh", "/auth/verify-otp", "/auth/send-otp"]
+            .some((path) => requestUrl.includes(path));
 
-        // Skip refresh loop for auth refresh / login / verify endpoints
         if (
-            error.response?.status === 401 &&
-            !originalRequest._retry &&
-            !originalRequest.url?.includes('/auth/refresh') &&
-            !originalRequest.url?.includes('/auth/verify-otp') &&
-            !originalRequest.url?.includes('/auth/send-otp')
+            error.response?.status !== 401 ||
+            !originalRequest ||
+            originalRequest._retry ||
+            isAuthRequest
         ) {
-            if (isRefreshing) {
-                return new Promise((resolve, reject) => {
-                    failedQueue.push({ resolve, reject });
-                })
-                    .then((token) => {
-                        originalRequest.headers.Authorization = `Bearer ${token}`;
-                        return axiosInstance(originalRequest);
-                    })
-                    .catch((err) => Promise.reject(err));
-            }
-
-            originalRequest._retry = true;
-            isRefreshing = true;
-
-            try {
-                // Call /auth/refresh with credentials (reads httpOnly refreshToken cookie)
-                const res = await axios.post(
-                    `${apiUrl}/auth/refresh`,
-                    {},
-                    { withCredentials: true }
-                );
-
-                const newAccessToken = res.data?.accessToken;
-                if (newAccessToken) {
-                    setAccessToken(newAccessToken);
-                    originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-                    processQueue(null, newAccessToken);
-                    return axiosInstance(originalRequest);
-                }
-            } catch (refreshErr) {
-                processQueue(refreshErr, null);
-                setAccessToken(null);
-                // Trigger storage event to synchronize logout across tabs
-                window.dispatchEvent(new Event('auth:logout'));
-                return Promise.reject(refreshErr);
-            } finally {
-                isRefreshing = false;
-            }
+            return Promise.reject(error);
         }
 
-        return Promise.reject(error);
+        if (isRefreshing) {
+            return new Promise((resolve, reject) => {
+                failedQueue.push({ resolve, reject });
+            }).then((token) => {
+                originalRequest.headers = originalRequest.headers || {};
+                originalRequest.headers.Authorization = `Bearer ${token}`;
+                return axiosInstance(originalRequest);
+            });
+        }
+
+        originalRequest._retry = true;
+        isRefreshing = true;
+
+        try {
+            const refreshResponse = await refreshAccessToken();
+            const newAccessToken = refreshResponse.accessToken;
+            originalRequest.headers = originalRequest.headers || {};
+            originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+            processQueue(null, newAccessToken);
+            return axiosInstance(originalRequest);
+        } catch (refreshError) {
+            processQueue(refreshError);
+            setAccessToken(null);
+            window.dispatchEvent(new Event("auth:logout"));
+            return Promise.reject(refreshError);
+        } finally {
+            isRefreshing = false;
+        }
     }
 );
 
